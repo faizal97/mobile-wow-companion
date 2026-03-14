@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../services/achievement_provider.dart';
 import '../services/character_provider.dart';
 import '../theme/app_theme.dart';
 import 'achievement_category_screen.dart';
@@ -64,7 +65,7 @@ class MainMenuScreen extends StatelessWidget {
                 _MenuCard(
                   icon: Icons.emoji_events_rounded,
                   title: 'Achievements',
-                  subtitle: 'Track your progress',
+                  subtitle: _buildAchievementSubtitle(context),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const AchievementCategoryScreen()),
                   ),
@@ -97,6 +98,15 @@ class MainMenuScreen extends StatelessWidget {
       return '${provider.characters.length} characters';
     }
     return 'View your warband';
+  }
+
+  String _buildAchievementSubtitle(BuildContext context) {
+    final provider = context.watch<AchievementProvider>();
+    final points = provider.progress?.totalPoints;
+    if (points != null && points > 0) {
+      return '$points points';
+    }
+    return 'Track your progress';
   }
 
   void _showSettings(BuildContext context) {
