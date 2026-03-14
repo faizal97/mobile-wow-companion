@@ -7,14 +7,18 @@ import '../models/achievement.dart';
 import '../services/achievement_provider.dart';
 import '../theme/app_theme.dart';
 
+enum AchievementFilter { all, inProgress, done }
+
 class AchievementListScreen extends StatefulWidget {
   final int categoryId;
   final String categoryName;
+  final int? highlightAchievementId;
 
   const AchievementListScreen({
     super.key,
     required this.categoryId,
     required this.categoryName,
+    this.highlightAchievementId,
   });
 
   @override
@@ -22,11 +26,20 @@ class AchievementListScreen extends StatefulWidget {
 }
 
 class _AchievementListScreenState extends State<AchievementListScreen> {
+  AchievementFilter _filter = AchievementFilter.all;
+  int? _highlightAchievementId;
+
   @override
   void initState() {
     super.initState();
+    _highlightAchievementId = widget.highlightAchievementId;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AchievementProvider>().loadCategoryDetails(widget.categoryId);
+      if (_highlightAchievementId != null) {
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _highlightAchievementId = null);
+        });
+      }
     });
   }
 
@@ -53,12 +66,67 @@ class _AchievementListScreenState extends State<AchievementListScreen> {
               final category = provider.getCategoryDetails(widget.categoryId);
               final merged = provider.getMergedAchievements(widget.categoryId);
 
-              return CustomScrollView(
+              // Split incomplete into "almost there" and regular
+              List<AchievementDisplay> almostThere = [];
+              List<AchievementDisplay> inProgress = [];
+              if (merged != null) {
+                for (final d in merged.incomplete) {
+                  if (d.totalCriteria > 0 && d.completedCriteria / d.totalCriteria >= 0.5) {
+                    almostThere.add(d);
+                  } else {
+                    inProgress.add(d);
+                  }
+                }
+                almostThere.sort((a, b) {
+                  final aRatio = a.totalCriteria > 0 ? a.completedCriteria / a.totalCriteria : 0.0;
+                  final bRatio = b.totalCriteria > 0 ? b.completedCriteria / b.totalCriteria : 0.0;
+                  return bRatio.compareTo(aRatio);
+                });
+                if (almostThere.length > 5) almostThere = almostThere.sublist(0, 5);
+              }
+
+              final showAlmostThere = _filter != AchievementFilter.done;
+              final showInProgress = _filter != AchievementFilter.done;
+              final showCompleted = _filter != AchievementFilter.inProgress;
+
+              // Find highlighted achievement for search
+              AchievementDisplay? highlighted;
+              if (_highlightAchievementId != null && merged != null) {
+                for (final d in [...almostThere, ...inProgress, ...(merged.completed)]) {
+                  if (d.achievement.id == _highlightAchievementId) {
+                    highlighted = d;
+                    break;
+                  }
+                }
+              }
+
+              return RefreshIndicator(
+                onRefresh: () => provider.forceRefreshCategory(widget.categoryId),
+                color: const Color(0xFF3FC7EB),
+                backgroundColor: AppTheme.surface,
+                child: CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(child: _buildHeader()),
 
+                  // Filter chips
+                  if (!isLoading && merged != null)
+                    SliverToBoxAdapter(child: _buildFilterChips()),
+
                   if (isLoading)
                     SliverToBoxAdapter(child: _buildLoadingShimmer()),
+
+                  // Highlighted search result
+                  if (!isLoading && highlighted != null) ...[
+                    SliverToBoxAdapter(
+                      child: _buildSectionHeader('SEARCH RESULT'),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _HighlightedAchievementCard(
+                        display: highlighted,
+                        onTap: () => _showDetail(highlighted!),
+                      ),
+                    ),
+                  ],
 
                   // Subcategories
                   if (!isLoading && category != null && category.subcategories.isNotEmpty) ...[
@@ -86,24 +154,41 @@ class _AchievementListScreenState extends State<AchievementListScreen> {
                     ),
                   ],
 
-                  // Incomplete achievements (rich cards)
-                  if (!isLoading && merged != null && merged.incomplete.isNotEmpty) ...[
+                  // Almost there
+                  if (!isLoading && showAlmostThere && almostThere.isNotEmpty) ...[
                     SliverToBoxAdapter(
-                      child: _buildSectionHeader('IN PROGRESS', count: merged.incomplete.length),
+                      child: _buildSectionHeader('ALMOST THERE', count: almostThere.length),
                     ),
                     SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) => _AchievementRichCard(
-                          display: merged.incomplete[index],
-                          onTap: () => _showDetail(merged.incomplete[index]),
+                          display: almostThere[index],
+                          onTap: () => _showDetail(almostThere[index]),
+                          highlight: true,
                         ),
-                        childCount: merged.incomplete.length,
+                        childCount: almostThere.length,
                       ),
                     ),
                   ],
 
-                  // Completed achievements (compact tiles)
-                  if (!isLoading && merged != null && merged.completed.isNotEmpty) ...[
+                  // In progress
+                  if (!isLoading && showInProgress && inProgress.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: _buildSectionHeader('IN PROGRESS', count: inProgress.length),
+                    ),
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => _AchievementRichCard(
+                          display: inProgress[index],
+                          onTap: () => _showDetail(inProgress[index]),
+                        ),
+                        childCount: inProgress.length,
+                      ),
+                    ),
+                  ],
+
+                  // Completed
+                  if (!isLoading && showCompleted && merged != null && merged.completed.isNotEmpty) ...[
                     SliverToBoxAdapter(
                       child: _buildSectionHeader('COMPLETED', count: merged.completed.length),
                     ),
@@ -141,6 +226,7 @@ class _AchievementListScreenState extends State<AchievementListScreen> {
 
                   const SliverToBoxAdapter(child: SizedBox(height: 40)),
                 ],
+              ),
               );
             },
           ),
@@ -231,6 +317,53 @@ class _AchievementListScreenState extends State<AchievementListScreen> {
     );
   }
 
+  Widget _buildFilterChips() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Row(
+        children: AchievementFilter.values.map((filter) {
+          final isActive = _filter == filter;
+          final label = switch (filter) {
+            AchievementFilter.all => 'All',
+            AchievementFilter.inProgress => 'In Progress',
+            AchievementFilter.done => 'Done',
+          };
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => setState(() => _filter = filter),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? const Color(0xFF3FC7EB).withValues(alpha: 0.1)
+                      : AppTheme.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isActive
+                        ? const Color(0xFF3FC7EB).withValues(alpha: 0.3)
+                        : AppTheme.surfaceBorder,
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isActive
+                        ? const Color(0xFF3FC7EB)
+                        : AppTheme.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   void _showDetail(AchievementDisplay display) {
     showModalBottomSheet(
       context: context,
@@ -285,8 +418,9 @@ class _SubcategoryTile extends StatelessWidget {
 class _AchievementRichCard extends StatelessWidget {
   final AchievementDisplay display;
   final VoidCallback onTap;
+  final bool highlight;
 
-  const _AchievementRichCard({required this.display, required this.onTap});
+  const _AchievementRichCard({required this.display, required this.onTap, this.highlight = false});
 
   @override
   Widget build(BuildContext context) {
@@ -301,7 +435,10 @@ class _AchievementRichCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.surfaceBorder, width: 1),
+          border: Border.all(
+            color: highlight ? const Color(0xFFFFD100).withValues(alpha: 0.4) : AppTheme.surfaceBorder,
+            width: 1,
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -504,6 +641,82 @@ class _CriteriaProgressBar extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _HighlightedAchievementCard extends StatelessWidget {
+  final AchievementDisplay display;
+  final VoidCallback onTap;
+
+  const _HighlightedAchievementCard({required this.display, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final ach = display.achievement;
+    final hasProgress = display.totalCriteria > 0;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFD100).withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: const Color(0xFFFFD100).withValues(alpha: 0.5),
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _AchievementIcon(iconUrl: ach.iconUrl, size: 44),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          ach.name,
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      _PointsBadge(points: ach.points),
+                      if (display.isCompleted) ...[
+                        const SizedBox(width: 8),
+                        const Icon(Icons.check_circle_rounded, color: Color(0xFF1EFF00), size: 16),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    ach.description,
+                    style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (hasProgress && !display.isCompleted) ...[
+                    const SizedBox(height: 10),
+                    _CriteriaProgressBar(
+                      completed: display.completedCriteria,
+                      total: display.totalCriteria,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
