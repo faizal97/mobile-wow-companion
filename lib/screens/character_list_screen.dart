@@ -823,13 +823,17 @@ class _CharacterCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: classColor,
+                      Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: classColor,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -956,15 +960,29 @@ class _CharacterCard extends StatelessWidget {
   Widget _buildSubtitle(Color classColor) {
     if (_isEnriched) {
       final lastLogin = _formatLastLogin();
-      return Text(
-        lastLogin != null
-            ? '${character.activeSpec} ${character.characterClass} · $lastLogin'
-            : '${character.activeSpec} ${character.characterClass}',
-        style: GoogleFonts.inter(
-          fontSize: 13,
-          color: AppTheme.textSecondary,
-        ),
-        overflow: TextOverflow.ellipsis,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${character.activeSpec} ${character.characterClass}',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+          if (lastLogin != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Text(
+                lastLogin,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: AppTheme.textTertiary,
+                ),
+              ),
+            ),
+        ],
       );
     }
 
