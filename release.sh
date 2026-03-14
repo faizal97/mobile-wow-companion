@@ -14,7 +14,8 @@ if [ -z "$BUMP" ] || [[ ! "$BUMP" =~ ^(major|minor|patch)$ ]]; then
   exit 1
 fi
 
-# Get latest version from git tags
+# Fetch remote tags and get latest version
+git fetch --tags --quiet
 LATEST=$(git tag --sort=-v:refname | head -1 | sed 's/^v//')
 if [ -z "$LATEST" ]; then
   LATEST="0.0.0"
