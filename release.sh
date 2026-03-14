@@ -111,10 +111,11 @@ ${CHANGELOG}
 NOTES
 )"
 
-# 5. Deploy Web to gh-pages
+# 6. Deploy Web to gh-pages
 echo ""
 echo "==> Deploying to GitHub Pages..."
 cp -r build/web /tmp/wow-web-deploy-${VERSION}
+cp .env /tmp/wow-env-backup 2>/dev/null || true
 
 git checkout gh-pages
 
@@ -133,8 +134,11 @@ git push
 # Switch back to main
 git checkout main
 
+# Restore .env
+cp /tmp/wow-env-backup .env 2>/dev/null || true
+
 # Cleanup
-rm -rf /tmp/wow-web-deploy-${VERSION}
+rm -rf /tmp/wow-web-deploy-${VERSION} /tmp/wow-env-backup
 
 echo ""
 echo "==> Done! v${VERSION} released"
