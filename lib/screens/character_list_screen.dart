@@ -284,14 +284,6 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
               size: 20,
             ),
           ),
-          IconButton(
-            onPressed: () => _showSettings(context, provider),
-            icon: const Icon(
-              Icons.more_vert_rounded,
-              color: AppTheme.textTertiary,
-              size: 20,
-            ),
-          ),
         ],
       ),
     );
@@ -733,46 +725,6 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
     );
   }
 
-  void _showSettings(BuildContext context, CharacterProvider provider) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.surfaceElevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceBorder,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: const Icon(Icons.logout_rounded,
-                  color: AppTheme.textSecondary),
-              title: Text(
-                'Sign Out',
-                style: GoogleFonts.inter(color: AppTheme.textPrimary),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                provider.logout();
-                Navigator.of(context).pushReplacementNamed('/login');
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 /// A character card for the list — shows avatar/level, name, spec, ilvl.
