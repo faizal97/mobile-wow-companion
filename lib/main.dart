@@ -10,7 +10,8 @@ import 'services/character_cache_service.dart';
 import 'services/character_provider.dart';
 import 'services/character_detail_provider.dart';
 import 'screens/login_screen.dart';
-import 'screens/character_list_screen.dart';
+import 'screens/main_menu_screen.dart';
+import 'services/achievement_provider.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -40,6 +41,9 @@ void main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => CharacterDetailProvider(apiService, cacheService),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AchievementProvider(apiService, cacheService),
         ),
       ],
       child: WowCompanionApp(authService: authService),
@@ -147,7 +151,7 @@ class _AutoLoginHandlerState extends State<_AutoLoginHandler> {
     if (provider.hasCharacters) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => const CharacterListScreen(),
+          builder: (_) => const MainMenuScreen(),
         ),
       );
     } else {
@@ -233,7 +237,7 @@ class _OAuthCallbackHandlerState extends State<_OAuthCallbackHandler> {
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => const CharacterListScreen(),
+          builder: (_) => const MainMenuScreen(),
         ),
       );
     } catch (e) {

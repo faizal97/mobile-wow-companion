@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/battlenet_auth_service.dart';
 import '../services/character_provider.dart';
 import '../theme/app_theme.dart';
-import 'character_list_screen.dart';
+import 'main_menu_screen.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -137,7 +137,7 @@ class LoginScreen extends StatelessWidget {
       if (context.mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => const CharacterListScreen(),
+            builder: (_) => const MainMenuScreen(),
           ),
         );
       }
