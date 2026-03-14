@@ -1,4 +1,4 @@
-package com.wowcompanion.wow_companion_scaffold
+package com.wowwarband.companion
 
 import io.flutter.embedding.android.FlutterActivity
 
