@@ -16,8 +16,11 @@ class BattleNetAuthService {
   BattleNetAuthService(this._prefs);
 
   /// Returns the Battle.net OAuth authorization URL.
-  Uri getAuthorizationUrl() {
-    return Uri.parse('https://oauth.battle.net/authorize').replace(
+  ///
+  /// [oauthBaseUrl] defaults to the global endpoint. Pass the region's
+  /// `oauthBaseUrl` for CN support.
+  Uri getAuthorizationUrl({String oauthBaseUrl = 'https://oauth.battle.net'}) {
+    return Uri.parse('$oauthBaseUrl/authorize').replace(
       queryParameters: {
         'client_id': AppConfig.battleNetClientId,
         'redirect_uri': AppConfig.redirectUri,

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/battlenet_auth_service.dart';
 import '../services/character_provider.dart';
+import '../services/region_service.dart';
 import '../theme/app_theme.dart';
 import 'main_menu_screen.dart';
 
@@ -127,7 +128,10 @@ class LoginScreen extends StatelessWidget {
 
   void _handleLogin(BuildContext context) {
     final authService = context.read<BattleNetAuthService>();
-    final authUrl = authService.getAuthorizationUrl();
+    final regionService = context.read<RegionService>();
+    final authUrl = authService.getAuthorizationUrl(
+      oauthBaseUrl: regionService.activeRegion.oauthBaseUrl,
+    );
     launchUrl(authUrl, mode: LaunchMode.externalApplication);
   }
 
