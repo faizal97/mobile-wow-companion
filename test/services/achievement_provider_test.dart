@@ -6,10 +6,10 @@ void main() {
   group('AchievementProvider', () {
     test('mergeWithProgress marks completed achievements', () {
       final achievements = [
-        Achievement(id: 6, name: 'Level 10', description: 'Reach 10', points: 10),
-        Achievement(id: 7, name: 'Level 20', description: 'Reach 20', points: 10),
+        const Achievement(id: 6, name: 'Level 10', description: 'Reach 10', points: 10),
+        const Achievement(id: 7, name: 'Level 20', description: 'Reach 20', points: 10),
       ];
-      final progress = AccountAchievementProgress(
+      const progress = AccountAchievementProgress(
         totalQuantity: 1,
         totalPoints: 10,
         achievements: {
@@ -34,7 +34,7 @@ void main() {
 
     test('mergeWithProgress calculates criteria completion counts', () {
       final achievements = [
-        Achievement(
+        const Achievement(
           id: 100,
           name: 'Explore',
           description: 'Explore all',
@@ -50,7 +50,7 @@ void main() {
           ),
         ),
       ];
-      final progress = AccountAchievementProgress(
+      const progress = AccountAchievementProgress(
         totalQuantity: 0,
         totalPoints: 0,
         achievements: {
@@ -70,7 +70,7 @@ void main() {
 
     test('mergeWithProgress with null progress treats all as incomplete', () {
       final achievements = [
-        Achievement(id: 1, name: 'Test', description: '', points: 5),
+        const Achievement(id: 1, name: 'Test', description: '', points: 5),
       ];
 
       final merged = AchievementProvider.mergeWithProgress(achievements, null);
@@ -80,10 +80,10 @@ void main() {
 
     test('completed preserves category order from API', () {
       final achievements = [
-        Achievement(id: 1, name: 'First', description: '', points: 5),
-        Achievement(id: 2, name: 'Second', description: '', points: 5),
+        const Achievement(id: 1, name: 'First', description: '', points: 5),
+        const Achievement(id: 2, name: 'Second', description: '', points: 5),
       ];
-      final progress = AccountAchievementProgress(
+      const progress = AccountAchievementProgress(
         totalQuantity: 2,
         totalPoints: 10,
         achievements: {
@@ -118,7 +118,7 @@ void main() {
 
     test('nearCompletion filters achievements at 50%+ criteria done', () {
       final achievements = [
-        Achievement(
+        const Achievement(
           id: 1, name: 'Almost', description: '', points: 10,
           criteria: AchievementCriteria(id: 10, childCriteria: [
             AchievementCriteria(id: 11, description: 'A'),
@@ -127,7 +127,7 @@ void main() {
             AchievementCriteria(id: 14, description: 'D'),
           ]),
         ),
-        Achievement(
+        const Achievement(
           id: 2, name: 'Far', description: '', points: 10,
           criteria: AchievementCriteria(id: 20, childCriteria: [
             AchievementCriteria(id: 21, description: 'A'),
@@ -137,7 +137,7 @@ void main() {
           ]),
         ),
       ];
-      final progress = AccountAchievementProgress(
+      const progress = AccountAchievementProgress(
         totalQuantity: 0, totalPoints: 0,
         achievements: {
           1: AchievementProgressEntry(

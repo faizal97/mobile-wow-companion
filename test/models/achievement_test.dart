@@ -24,7 +24,7 @@ void main() {
     });
 
     test('toJson round-trips correctly', () {
-      final cat = AchievementCategory(
+      const cat = AchievementCategory(
         id: 92,
         name: 'General',
         subcategories: [AchievementCategoryRef(id: 15465, name: 'Expansion Features')],
@@ -91,7 +91,7 @@ void main() {
     });
 
     test('toJson round-trips correctly', () {
-      final ach = Achievement(
+      const ach = Achievement(
         id: 6,
         name: 'Level 10',
         description: 'Reach level 10.',

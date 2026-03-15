@@ -353,6 +353,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     final regionService = context.read<RegionService>();
     final apiService = context.read<BattleNetApiService>();
     final provider = context.read<CharacterProvider>();
+    final achievementProvider = context.read<AchievementProvider>();
 
     await regionService.setActiveRegion(region);
     apiService.setRegion(region);
@@ -361,7 +362,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     provider.bumpLoadGeneration();
 
     // Clear achievement progress (per-region data)
-    context.read<AchievementProvider>().clearProgress();
+    achievementProvider.clearProgress();
 
     // Clear cached data and reload for new region
     provider.forceRefresh();

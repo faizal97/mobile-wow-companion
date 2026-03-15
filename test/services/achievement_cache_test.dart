@@ -14,7 +14,7 @@ void main() {
     });
 
     test('caches and retrieves achievement category', () {
-      final cat = AchievementCategory(
+      const cat = AchievementCategory(
         id: 92,
         name: 'General',
         subcategories: [AchievementCategoryRef(id: 100, name: 'Sub')],
@@ -32,8 +32,8 @@ void main() {
 
     test('caches and retrieves achievement definitions', () {
       final achievements = [
-        Achievement(id: 6, name: 'Level 10', description: 'Reach level 10.', points: 10),
-        Achievement(id: 7, name: 'Level 20', description: 'Reach level 20.', points: 10),
+        const Achievement(id: 6, name: 'Level 10', description: 'Reach level 10.', points: 10),
+        const Achievement(id: 7, name: 'Level 20', description: 'Reach level 20.', points: 10),
       ];
 
       cacheService.cacheAchievements(92, achievements);
@@ -50,7 +50,7 @@ void main() {
     });
 
     test('clearAll removes achievement cache entries', () {
-      final cat = AchievementCategory(id: 92, name: 'General');
+      const cat = AchievementCategory(id: 92, name: 'General');
       cacheService.cacheAchievementCategory(cat);
       cacheService.clearAll();
       expect(cacheService.getCachedAchievementCategory(92), isNull);

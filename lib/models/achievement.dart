@@ -1,4 +1,5 @@
 /// Achievement data models for the Blizzard WoW Achievement API.
+library;
 
 class AchievementCategoryRef {
   final int id;

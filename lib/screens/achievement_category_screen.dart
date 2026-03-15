@@ -406,7 +406,7 @@ class _AchievementCategoryScreenState extends State<AchievementCategoryScreen> {
             for (final display in provider.recentlyCompleted) ...[
               _RecentAchievementRow(display: display),
               if (display != provider.recentlyCompleted.last)
-                Divider(color: AppTheme.surfaceBorder, height: 16, thickness: 0.5),
+                const Divider(color: AppTheme.surfaceBorder, height: 16, thickness: 0.5),
             ],
           ],
         ),
