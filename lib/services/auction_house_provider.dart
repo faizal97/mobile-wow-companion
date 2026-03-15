@@ -26,6 +26,9 @@ class AuctionHouseProvider extends ChangeNotifier {
   String? _errorMessage;
   DateTime? _lastPriceFetch;
 
+  /// Cache of item ID → icon URL to avoid re-fetching across searches.
+  final Map<int, String> _iconCache = {};
+
   AuctionHouseProvider({
     required this.searchFunction,
     required this.fetchPricesFunction,
@@ -47,6 +50,12 @@ class AuctionHouseProvider extends ChangeNotifier {
   /// Load watchlist from persistence, then fetch prices if stale.
   Future<void> init() async {
     _watchlist = await loadWatchlistFunction();
+    // Populate icon cache from persisted watchlist
+    for (final item in _watchlist) {
+      if (item.iconUrl != null) {
+        _iconCache[item.id] = item.iconUrl!;
+      }
+    }
     notifyListeners();
     await fetchPrices();
   }
@@ -63,11 +72,48 @@ class AuctionHouseProvider extends ChangeNotifier {
 
     try {
       _searchResults = await searchFunction(query);
+
+      // Apply cached icons immediately
+      for (var i = 0; i < _searchResults.length; i++) {
+        final cached = _iconCache[_searchResults[i].id];
+        if (cached != null) {
+          _searchResults[i] = _searchResults[i].copyWith(iconUrl: cached);
+        }
+      }
     } catch (_) {
       _searchResults = [];
     } finally {
       _isSearching = false;
       notifyListeners();
+    }
+
+    // Enrich icons in background for results that need them
+    _enrichSearchResultIcons();
+  }
+
+  /// Fetches icons for search results that have a mediaId but no iconUrl.
+  void _enrichSearchResultIcons() {
+    if (enrichIconFunction == null) return;
+
+    for (var i = 0; i < _searchResults.length; i++) {
+      final item = _searchResults[i];
+      if (item.iconUrl != null || item.mediaId == null) continue;
+      if (_iconCache.containsKey(item.id)) continue;
+
+      final itemId = item.id;
+      final mediaId = item.mediaId!;
+
+      enrichIconFunction!(mediaId).then((url) {
+        if (url == null) return;
+        _iconCache[itemId] = url;
+
+        // Update in search results if still present
+        final idx = _searchResults.indexWhere((i) => i.id == itemId);
+        if (idx >= 0) {
+          _searchResults[idx] = _searchResults[idx].copyWith(iconUrl: url);
+          notifyListeners();
+        }
+      });
     }
   }
 
@@ -79,15 +125,23 @@ class AuctionHouseProvider extends ChangeNotifier {
   /// Add item to watchlist, persist, and fetch its price.
   Future<void> addToWatchlist(AuctionItem item) async {
     if (isInWatchlist(item.id)) return;
-    _watchlist.add(item);
+
+    // Apply cached icon if available
+    final cachedIcon = _iconCache[item.id];
+    final itemToAdd = cachedIcon != null && item.iconUrl == null
+        ? item.copyWith(iconUrl: cachedIcon)
+        : item;
+
+    _watchlist.add(itemToAdd);
     notifyListeners();
     await saveWatchlistFunction(_watchlist);
 
-    // Background icon fetch — don't await
-    if (item.mediaId != null && item.iconUrl == null && enrichIconFunction != null) {
-      enrichIconFunction!(item.mediaId!).then((url) {
+    // Background icon fetch if still needed
+    if (itemToAdd.mediaId != null && itemToAdd.iconUrl == null && enrichIconFunction != null) {
+      enrichIconFunction!(itemToAdd.mediaId!).then((url) {
         if (url != null) {
-          final idx = _watchlist.indexWhere((i) => i.id == item.id);
+          _iconCache[itemToAdd.id] = url;
+          final idx = _watchlist.indexWhere((i) => i.id == itemToAdd.id);
           if (idx >= 0) {
             _watchlist[idx] = _watchlist[idx].copyWith(iconUrl: url);
             saveWatchlistFunction(_watchlist);
@@ -97,7 +151,7 @@ class AuctionHouseProvider extends ChangeNotifier {
       });
     }
 
-    await _fetchPricesForItems([item.id]);
+    await _fetchPricesForItems([itemToAdd.id]);
   }
 
   /// Remove item from watchlist and persist.
