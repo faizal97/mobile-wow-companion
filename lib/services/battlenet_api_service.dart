@@ -6,6 +6,7 @@ import '../models/mythic_plus_profile.dart';
 import '../models/achievement.dart';
 import '../models/raid_progression.dart';
 import '../models/battlenet_region.dart';
+import '../models/auction_item.dart';
 import '../models/wow_token.dart';
 import 'battlenet_auth_service.dart';
 
@@ -767,6 +768,68 @@ class BattleNetApiService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return WowToken.fromJson(data);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Searches for items by name using the Blizzard Item Search API.
+  ///
+  /// Returns matching items with name, subclass, and media ID.
+  /// Uses the static namespace for game data lookups.
+  Future<List<AuctionItem>> searchItems(String query) async {
+    final token = await _authService.getAccessToken();
+    if (token == null) return [];
+
+    try {
+      final encodedQuery = Uri.encodeComponent(query);
+      final response = await http.get(
+        Uri.parse(
+          '$_apiBase/data/wow/search/item?namespace=$_staticNamespace'
+          '&locale=$_locale'
+          '&name.$_locale=$encodedQuery'
+          '&orderby=id'
+          '&_pageSize=25'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final results = data['results'] as List? ?? [];
+        return results
+            .map((r) => AuctionItem.fromSearchResult(
+                r as Map<String, dynamic>, _locale))
+            .toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Fetches the icon URL for an item from the media endpoint.
+  Future<String?> getItemIconUrl(int itemId) async {
+    final token = await _authService.getAccessToken();
+    if (token == null) return null;
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+          '$_apiBase/data/wow/media/item/$itemId'
+          '?namespace=$_staticNamespace&locale=$_locale'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final assets = data['assets'] as List? ?? [];
+        for (final asset in assets) {
+          if (asset['key'] == 'icon') {
+            return asset['value'] as String?;
+          }
+        }
       }
       return null;
     } catch (_) {
