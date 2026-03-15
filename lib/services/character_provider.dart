@@ -15,6 +15,7 @@ class CharacterProvider extends ChangeNotifier {
   WowCharacter? _selectedCharacter;
   bool _isLoading = false;
   bool _useMockData = true; // Toggled off after successful OAuth
+  int _loadGeneration = 0;
 
   CharacterProvider(this._apiService, this._authService, this._cacheService);
 
@@ -28,16 +29,26 @@ class CharacterProvider extends ChangeNotifier {
     _useMockData = false;
   }
 
+  /// Bumps the load generation, causing any in-flight load to be discarded.
+  void bumpLoadGeneration() {
+    _loadGeneration++;
+  }
+
   /// Load characters — uses mock data in dev, real API in production.
   Future<void> loadCharacters() async {
+    final generation = _loadGeneration;
+
     _isLoading = true;
     notifyListeners();
 
     if (_useMockData) {
       await Future.delayed(const Duration(milliseconds: 800));
+      if (_loadGeneration != generation) return;
       _characters = WowCharacter.mockCharacters();
     } else {
-      _characters = await _apiService.getAccountCharacters();
+      final chars = await _apiService.getAccountCharacters();
+      if (_loadGeneration != generation) return;
+      _characters = chars;
     }
 
     // Auto-select the first (highest level) character
@@ -60,6 +71,7 @@ class CharacterProvider extends ChangeNotifier {
   /// Updates the UI progressively as each character is enriched.
   Future<void> _enrichAllCharacters() async {
     final toFetch = <int>[]; // indices of characters needing API fetch
+    final generation = _loadGeneration;
 
     // First pass: apply cached data immediately
     for (var i = 0; i < _characters.length; i++) {
@@ -82,6 +94,7 @@ class CharacterProvider extends ChangeNotifier {
     // Fire all uncached enrichment requests in parallel
     final futures = toFetch.map((index) async {
       final enriched = await _apiService.enrichCharacter(_characters[index]);
+      if (_loadGeneration != generation) return;
       _characters[index] = enriched;
       _cacheService.cache(enriched);
 

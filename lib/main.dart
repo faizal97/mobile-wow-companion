@@ -9,6 +9,8 @@ import 'services/battlenet_api_service.dart';
 import 'services/character_cache_service.dart';
 import 'services/character_provider.dart';
 import 'services/character_detail_provider.dart';
+import 'services/region_service.dart';
+import 'models/battlenet_region.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_menu_screen.dart';
 import 'services/achievement_provider.dart';
@@ -27,14 +29,17 @@ void main() async {
   );
 
   final prefs = await SharedPreferences.getInstance();
+  final regionService = RegionService(prefs);
   final authService = BattleNetAuthService(prefs);
-  final apiService = BattleNetApiService(authService);
+  final apiService = BattleNetApiService(authService, regionService.activeRegion);
   final cacheService = CharacterCacheService(prefs);
 
   runApp(
     MultiProvider(
       providers: [
         Provider.value(value: authService),
+        Provider.value(value: regionService),
+        Provider.value(value: apiService),
         ChangeNotifierProvider(
           create: (_) =>
               CharacterProvider(apiService, authService, cacheService),
@@ -140,6 +145,12 @@ class _AutoLoginHandlerState extends State<_AutoLoginHandler> {
   }
 
   Future<void> _loadAndNavigate() async {
+    final apiService = context.read<BattleNetApiService>();
+    final regionService = context.read<RegionService>();
+
+    // Apply stored region
+    apiService.setRegion(regionService.activeRegion);
+
     final provider = context.read<CharacterProvider>();
     final detailProvider = context.read<CharacterDetailProvider>();
     provider.useRealApi();
@@ -225,6 +236,31 @@ class _OAuthCallbackHandlerState extends State<_OAuthCallbackHandler> {
       }
 
       if (!mounted) return;
+
+      // Detect regions
+      setState(() => _status = 'Detecting your regions...');
+      final apiService = context.read<BattleNetApiService>();
+      final regionService = context.read<RegionService>();
+
+      final detected = await apiService.detectRegionsWithCharacters();
+      await regionService.saveDetectedRegions(detected);
+      await regionService.markRegionDetectionDone();
+
+      if (detected.isNotEmpty) {
+        // Pick the region with the most characters
+        final bestRegion = detected.entries
+            .reduce((a, b) => a.value >= b.value ? a : b)
+            .key;
+        await regionService.setActiveRegion(bestRegion);
+        apiService.setRegion(bestRegion);
+      }
+
+      if (!mounted) return;
+
+      if (detected.isEmpty) {
+        // No characters found — will be handled by a region picker screen in a later task.
+        // For now, proceed to main menu with US default.
+      }
 
       setState(() => _status = 'Loading characters...');
       final provider = context.read<CharacterProvider>();
