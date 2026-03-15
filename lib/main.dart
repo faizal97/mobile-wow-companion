@@ -13,6 +13,7 @@ import 'services/region_service.dart';
 import 'models/battlenet_region.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_menu_screen.dart';
+import 'screens/region_picker_screen.dart';
 import 'services/achievement_provider.dart';
 import 'theme/app_theme.dart';
 
@@ -258,8 +259,12 @@ class _OAuthCallbackHandlerState extends State<_OAuthCallbackHandler> {
       if (!mounted) return;
 
       if (detected.isEmpty) {
-        // No characters found — will be handled by a region picker screen in a later task.
-        // For now, proceed to main menu with US default.
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const RegionPickerScreen(),
+          ),
+        );
+        return;
       }
 
       setState(() => _status = 'Loading characters...');
