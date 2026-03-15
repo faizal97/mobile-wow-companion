@@ -4,7 +4,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../services/achievement_provider.dart';
+import '../services/battlenet_api_service.dart';
 import '../services/character_provider.dart';
+import '../services/region_service.dart';
+import '../models/battlenet_region.dart';
 import '../theme/app_theme.dart';
 import 'achievement_category_screen.dart';
 import 'character_list_screen.dart';
@@ -54,7 +57,21 @@ class MainMenuScreen extends StatelessWidget {
                     height: 1.0,
                   ),
                 ),
-                const SizedBox(height: 48),
+                const SizedBox(height: 8),
+                Builder(
+                  builder: (context) {
+                    final regionService = context.watch<RegionService>();
+                    return Text(
+                      regionService.activeRegion.displayName,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppTheme.textTertiary,
+                        letterSpacing: 1,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 40),
                 _MenuCard(
                   icon: Icons.people_rounded,
                   title: 'Characters',
@@ -152,7 +169,11 @@ class MainMenuScreen extends StatelessWidget {
                       );
                       if (confirmed == true && context.mounted) {
                         context.read<CharacterProvider>().logout();
-                        Navigator.of(context).pushReplacementNamed('/login');
+                        await context.read<RegionService>().clearAll();
+                        context.read<BattleNetApiService>().setRegion(BattleNetRegion.us);
+                        if (context.mounted) {
+                          Navigator.of(context).pushReplacementNamed('/login');
+                        }
                       }
                     },
                     child: Text(
