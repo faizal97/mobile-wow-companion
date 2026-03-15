@@ -89,6 +89,18 @@ class MainMenuScreen extends StatelessWidget {
                     MaterialPageRoute(builder: (_) => const AchievementCategoryScreen()),
                   ),
                 ),
+                const SizedBox(height: 16),
+                Builder(
+                  builder: (context) {
+                    final regionService = context.read<RegionService>();
+                    return _MenuCard(
+                      icon: Icons.public_rounded,
+                      title: 'Region',
+                      subtitle: regionService.activeRegion.displayName,
+                      onTap: () => _showRegionSwitcher(context),
+                    );
+                  },
+                ),
                 const Spacer(),
                 // Footer links
                 Row(
@@ -211,6 +223,124 @@ class MainMenuScreen extends StatelessWidget {
     return 'Track your progress';
   }
 
+  void _showRegionSwitcher(BuildContext context) {
+    final regionService = context.read<RegionService>();
+    final detected = regionService.detectedRegions;
+    final activeRegion = regionService.activeRegion;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        final detectedRegions = detected.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        final otherRegions = BattleNetRegion.values
+            .where((r) => !detected.containsKey(r))
+            .toList();
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 32,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Switch Region',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (detectedRegions.isNotEmpty) ...[
+                  Text(
+                    'DETECTED',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textTertiary,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...detectedRegions.map((entry) => _RegionOption(
+                    region: entry.key,
+                    subtitle: '${entry.value} characters',
+                    isActive: entry.key == activeRegion,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _switchRegion(context, entry.key);
+                    },
+                  )),
+                ],
+                if (otherRegions.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'OTHER REGIONS',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textTertiary,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...otherRegions.map((region) => _RegionOption(
+                    region: region,
+                    subtitle: region.key.toUpperCase(),
+                    isActive: region == activeRegion,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _switchRegion(context, region);
+                    },
+                  )),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _switchRegion(BuildContext context, BattleNetRegion region) async {
+    final regionService = context.read<RegionService>();
+    final apiService = context.read<BattleNetApiService>();
+    final provider = context.read<CharacterProvider>();
+
+    await regionService.setActiveRegion(region);
+    apiService.setRegion(region);
+
+    // TLA+ FIX #2: Bump load generation BEFORE forceRefresh
+    provider.bumpLoadGeneration();
+
+    // Clear cached data and reload for new region
+    provider.forceRefresh();
+
+    if (!context.mounted) return;
+
+    // Navigate back to main menu (replace current)
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainMenuScreen()),
+    );
+  }
+
   static Widget _footerDot() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -327,6 +457,73 @@ class _FooterLink extends StatelessWidget {
                 color: AppTheme.textTertiary,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RegionOption extends StatelessWidget {
+  final BattleNetRegion region;
+  final String subtitle;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _RegionOption({
+    required this.region,
+    required this.subtitle,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: isActive ? null : onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isActive
+              ? const Color(0xFF3FC7EB).withValues(alpha: 0.1)
+              : AppTheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isActive
+                ? const Color(0xFF3FC7EB).withValues(alpha: 0.3)
+                : AppTheme.surfaceBorder,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    region.displayName,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: isActive
+                          ? const Color(0xFF3FC7EB)
+                          : AppTheme.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isActive)
+              const Icon(Icons.check_rounded, color: Color(0xFF3FC7EB), size: 20),
           ],
         ),
       ),
