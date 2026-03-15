@@ -207,9 +207,10 @@ async function getCommoditiesIndex(region, env) {
   // Build price index: { itemId: { min_price, total_quantity } }
   const index = {};
   for (const auction of auctions) {
-    const itemId = String(auction.item.id);
-    const unitPrice = auction.unit_price;
-    const quantity = auction.quantity;
+    const itemId = auction.item?.id;
+    if (!itemId) continue;
+    const unitPrice = auction.unit_price || 0;
+    const quantity = auction.quantity || 0;
 
     const entry = index[itemId];
     if (entry) {
