@@ -183,7 +183,9 @@ class MainMenuScreen extends StatelessWidget {
                         final charProvider = context.read<CharacterProvider>();
                         final regionSvc = context.read<RegionService>();
                         final apiSvc = context.read<BattleNetApiService>();
+                        final achProvider = context.read<AchievementProvider>();
                         charProvider.logout();
+                        achProvider.clearProgress();
                         await regionSvc.clearAll();
                         apiSvc.setRegion(BattleNetRegion.us);
                         if (context.mounted) {
@@ -343,6 +345,9 @@ class MainMenuScreen extends StatelessWidget {
 
     // TLA+ FIX #2: Bump load generation BEFORE forceRefresh
     provider.bumpLoadGeneration();
+
+    // Clear achievement progress (per-region data)
+    context.read<AchievementProvider>().clearProgress();
 
     // Clear cached data and reload for new region
     provider.forceRefresh();

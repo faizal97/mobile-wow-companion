@@ -144,6 +144,14 @@ class AchievementProvider extends ChangeNotifier {
     return sorted;
   }
 
+  /// Clears player-specific achievement data (progress, recent completions).
+  /// Called on region switch — static data (categories, definitions) is kept.
+  void clearProgress() {
+    _progress = null;
+    _recentlyCompleted = [];
+    notifyListeners();
+  }
+
   /// Loads the top-level achievement categories.
   Future<void> loadCategories() async {
     _isCategoriesLoading = true;
