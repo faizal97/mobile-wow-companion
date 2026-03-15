@@ -41,6 +41,22 @@ void main() {
       expect(BattleNetRegion.fromKey('xx'), isNull);
     });
 
+    test('each region has correct displayName', () {
+      expect(BattleNetRegion.us.displayName, 'Americas');
+      expect(BattleNetRegion.eu.displayName, 'Europe');
+      expect(BattleNetRegion.kr.displayName, 'Korea');
+      expect(BattleNetRegion.tw.displayName, 'Taiwan');
+      expect(BattleNetRegion.cn.displayName, 'China');
+    });
+
+    test('each region has correct locale', () {
+      expect(BattleNetRegion.us.locale, 'en_US');
+      expect(BattleNetRegion.eu.locale, 'en_GB');
+      expect(BattleNetRegion.kr.locale, 'ko_KR');
+      expect(BattleNetRegion.tw.locale, 'zh_TW');
+      expect(BattleNetRegion.cn.locale, 'zh_CN');
+    });
+
     test('all regions are present', () {
       expect(BattleNetRegion.values.length, 5);
     });
