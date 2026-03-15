@@ -395,6 +395,14 @@ class _AuctionItemTile extends StatelessWidget {
                   _buildPriceRow()
                 else if (showPrice && isLoadingPrice)
                   _buildPriceShimmer()
+                else if (showPrice)
+                  Text(
+                    'Price unavailable',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: AppTheme.textTertiary,
+                    ),
+                  )
                 else if (item.subclass != null)
                   Text(
                     item.subclass!,

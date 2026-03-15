@@ -363,9 +363,10 @@ Future<Map<int, ({int minPrice, int totalQuantity})>> _fetchCommodityPrices(
   final ids = itemIds.join(',');
 
   try {
-    final response = await http.get(
-      Uri.parse('$workerUrl/commodities/prices?items=$ids&region=${region.key}'),
-    );
+    final url = '$workerUrl/commodities/prices?items=$ids&region=${region.key}';
+    debugPrint('[AH] Fetching prices: $url');
+    final response = await http.get(Uri.parse(url));
+    debugPrint('[AH] Response ${response.statusCode}: ${response.body.length} bytes');
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -378,7 +379,10 @@ Future<Map<int, ({int minPrice, int totalQuantity})>> _fetchCommodityPrices(
           ),
       };
     }
-  } catch (_) {}
+    debugPrint('[AH] Price fetch failed: ${response.statusCode} ${response.body}');
+  } catch (e) {
+    debugPrint('[AH] Price fetch error: $e');
+  }
   return {};
 }
 
