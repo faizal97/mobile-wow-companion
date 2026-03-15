@@ -5,6 +5,7 @@ import '../models/equipped_item.dart';
 import '../models/mythic_plus_profile.dart';
 import '../models/achievement.dart';
 import '../models/raid_progression.dart';
+import '../models/battlenet_region.dart';
 import 'battlenet_auth_service.dart';
 
 /// Fetches WoW character data from the Battle.net API.
@@ -13,13 +14,20 @@ import 'battlenet_auth_service.dart';
 class BattleNetApiService {
   final BattleNetAuthService _authService;
 
-  // Default to US region; make configurable later
-  static const String _apiBase = 'https://us.api.blizzard.com';
-  static const String _namespace = 'profile-us';
-  static const String _locale = 'en_US';
-  static const String _staticNamespace = 'static-us';
+  BattleNetRegion _region;
 
-  BattleNetApiService(this._authService);
+  String get _apiBase => _region.apiBaseUrl;
+  String get _namespace => _region.profileNamespace;
+  String get _locale => _region.locale;
+  String get _staticNamespace => _region.staticNamespace;
+
+  BattleNetApiService(this._authService, [this._region = BattleNetRegion.us]);
+
+  BattleNetRegion get region => _region;
+
+  void setRegion(BattleNetRegion region) {
+    _region = region;
+  }
 
   /// Fetches all characters on the authenticated user's account.
   Future<List<WowCharacter>> getAccountCharacters() async {
@@ -306,7 +314,7 @@ class BattleNetApiService {
 
     if (uniqueIds.isEmpty) return profile;
 
-    final staticNamespace = _namespace.replaceAll('profile', 'static');
+    final staticNamespace = _staticNamespace;
     final headers = {'Authorization': 'Bearer $token'};
 
     final futures = uniqueIds.map((dungeonId) async {
@@ -314,7 +322,7 @@ class BattleNetApiService {
         // Try 1: Get dungeon details, follow media href
         final dungeonResponse = await http.get(
           Uri.parse(
-              '$_apiBase/data/wow/mythic-keystone/dungeon/$dungeonId?namespace=dynamic-us&locale=$_locale'),
+              '$_apiBase/data/wow/mythic-keystone/dungeon/$dungeonId?namespace=${_region.dynamicNamespace}&locale=$_locale'),
           headers: headers,
         );
 
@@ -402,7 +410,7 @@ class BattleNetApiService {
     final token = await _authService.getAccessToken();
     if (token == null) return progression;
 
-    final staticNamespace = _namespace.replaceAll('profile', 'static');
+    final staticNamespace = _staticNamespace;
     final headers = {'Authorization': 'Bearer $token'};
     final instances = List<RaidInstance>.from(progression.instances);
 
@@ -476,7 +484,7 @@ class BattleNetApiService {
     final token = await _authService.getAccessToken();
     if (token == null) return {};
 
-    final staticNamespace = _namespace.replaceAll('profile', 'static');
+    final staticNamespace = _staticNamespace;
     final headers = {'Authorization': 'Bearer $token'};
     final iconMap = <int, String>{};
 
@@ -700,5 +708,43 @@ class BattleNetApiService {
 
     await Future.wait(futures);
     return result;
+  }
+
+  /// Queries all regions in parallel to find which ones have characters.
+  ///
+  /// Returns a map of region -> character count. Regions that fail or
+  /// return no characters are excluded from the result.
+  Future<Map<BattleNetRegion, int>> detectRegionsWithCharacters() async {
+    final token = await _authService.getAccessToken();
+    if (token == null) return {};
+
+    final results = <BattleNetRegion, int>{};
+
+    final futures = BattleNetRegion.values.map((region) async {
+      try {
+        final response = await http.get(
+          Uri.parse(
+              '${region.apiBaseUrl}/profile/user/wow?namespace=${region.profileNamespace}&locale=${region.locale}'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final accounts = data['wow_accounts'] as List? ?? [];
+          var count = 0;
+          for (final account in accounts) {
+            count += (account['characters'] as List?)?.length ?? 0;
+          }
+          if (count > 0) {
+            results[region] = count;
+          }
+        }
+      } catch (_) {
+        // Region unreachable -- skip it
+      }
+    });
+
+    await Future.wait(futures);
+    return results;
   }
 }
