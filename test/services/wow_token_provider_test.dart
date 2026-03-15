@@ -49,7 +49,7 @@ void main() {
     });
 
     test('refreshTokenPrice fetches after rate limit expires', () async {
-      final provider = createProvider();
+      createProvider(); // resets apiCallCount and mockResponse
       // Use a provider with a very short rate limit for testing
       final fastProvider = WowTokenProvider(
         fetchFunction: () async {

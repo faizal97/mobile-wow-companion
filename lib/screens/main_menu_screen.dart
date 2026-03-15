@@ -376,6 +376,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     final apiService = context.read<BattleNetApiService>();
     final provider = context.read<CharacterProvider>();
     final achievementProvider = context.read<AchievementProvider>();
+    final tokenProvider = context.read<WowTokenProvider>();
 
     await regionService.setActiveRegion(region);
     apiService.setRegion(region);
@@ -383,10 +384,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     // TLA+ FIX #2: Bump load generation BEFORE forceRefresh
     provider.bumpLoadGeneration();
 
-    // Clear achievement progress (per-region data)
+    // Clear achievement progress and token cache (per-region data)
     achievementProvider.clearProgress();
-
-    final tokenProvider = context.read<WowTokenProvider>();
     tokenProvider.clearToken();
 
     // Clear cached data and reload for new region

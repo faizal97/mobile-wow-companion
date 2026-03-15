@@ -14,27 +14,27 @@ void main() {
     });
 
     test('priceInGold converts copper to gold', () {
-      final token = WowToken(price: 2345000000, lastUpdatedTimestamp: 0);
+      const token = WowToken(price: 2345000000, lastUpdatedTimestamp: 0);
       expect(token.priceInGold, 234500);
     });
 
     test('formattedPrice formats with comma separators', () {
-      final token = WowToken(price: 2345000000, lastUpdatedTimestamp: 0);
+      const token = WowToken(price: 2345000000, lastUpdatedTimestamp: 0);
       expect(token.formattedPrice, '234,500');
     });
 
     test('formattedPrice handles small prices', () {
-      final token = WowToken(price: 50000, lastUpdatedTimestamp: 0);
+      const token = WowToken(price: 50000, lastUpdatedTimestamp: 0);
       expect(token.formattedPrice, '5');
     });
 
     test('formattedPrice handles zero', () {
-      final token = WowToken(price: 0, lastUpdatedTimestamp: 0);
+      const token = WowToken(price: 0, lastUpdatedTimestamp: 0);
       expect(token.formattedPrice, '0');
     });
 
     test('lastUpdated returns correct DateTime', () {
-      final token = WowToken(price: 0, lastUpdatedTimestamp: 1710500000000);
+      const token = WowToken(price: 0, lastUpdatedTimestamp: 1710500000000);
       expect(
         token.lastUpdated,
         DateTime.fromMillisecondsSinceEpoch(1710500000000),
