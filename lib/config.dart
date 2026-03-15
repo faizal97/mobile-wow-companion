@@ -10,8 +10,10 @@ class AppConfig {
       String.fromEnvironment('BNET_CLIENT_ID');
 
   /// URL of the Cloudflare Worker auth proxy that exchanges codes for tokens.
-  static const String authProxyUrl =
-      String.fromEnvironment('AUTH_PROXY_URL');
+  static const String authProxyUrl = String.fromEnvironment(
+    'AUTH_PROXY_URL',
+    defaultValue: 'https://wow-companion-auth.fayz.workers.dev',
+  );
 
   /// OAuth redirect URI.
   static const String redirectUri = String.fromEnvironment(
