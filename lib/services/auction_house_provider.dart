@@ -14,6 +14,7 @@ class AuctionHouseProvider extends ChangeNotifier {
       List<int> itemIds) fetchPricesFunction;
   final Future<List<AuctionItem>> Function() loadWatchlistFunction;
   final Future<void> Function(List<AuctionItem>) saveWatchlistFunction;
+  final Future<String?> Function(int mediaId)? enrichIconFunction;
 
   final Duration rateLimitDuration;
   final Duration stalenessDuration;
@@ -30,6 +31,7 @@ class AuctionHouseProvider extends ChangeNotifier {
     required this.fetchPricesFunction,
     required this.loadWatchlistFunction,
     required this.saveWatchlistFunction,
+    this.enrichIconFunction,
     this.rateLimitDuration = const Duration(minutes: 2),
     this.stalenessDuration = const Duration(minutes: 20),
   });
@@ -80,6 +82,21 @@ class AuctionHouseProvider extends ChangeNotifier {
     _watchlist.add(item);
     notifyListeners();
     await saveWatchlistFunction(_watchlist);
+
+    // Background icon fetch — don't await
+    if (item.mediaId != null && item.iconUrl == null && enrichIconFunction != null) {
+      enrichIconFunction!(item.mediaId!).then((url) {
+        if (url != null) {
+          final idx = _watchlist.indexWhere((i) => i.id == item.id);
+          if (idx >= 0) {
+            _watchlist[idx] = _watchlist[idx].copyWith(iconUrl: url);
+            saveWatchlistFunction(_watchlist);
+            notifyListeners();
+          }
+        }
+      });
+    }
+
     await _fetchPricesForItems([item.id]);
   }
 

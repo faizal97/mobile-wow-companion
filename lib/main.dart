@@ -70,6 +70,7 @@ void main() async {
             ),
             loadWatchlistFunction: () => _loadWatchlist(prefs),
             saveWatchlistFunction: (items) => _saveWatchlist(prefs, items),
+            enrichIconFunction: (mediaId) => apiService.getItemIconUrl(mediaId),
           ),
         ),
       ],
