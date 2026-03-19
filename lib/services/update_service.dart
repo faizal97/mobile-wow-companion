@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Checks GitHub Releases for newer app versions.
 class UpdateService {
   static const _repoOwner = 'faizal97';
   static const _repoName = 'wow-warband-companion';
+  static const _pendingInstallKey = 'pending_install_version';
 
   /// Returns update info if a newer version is available, null otherwise.
   /// Skips check on web (web always serves latest).
@@ -39,6 +41,9 @@ class UpdateService {
 
       if (!_isNewer(latestVersion, currentVersion)) {
         debugPrint('[UpdateService] No update needed ($currentVersion >= $latestVersion)');
+        // Clear any pending install flag — current version is up to date
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_pendingInstallKey);
         return null;
       }
 
@@ -104,6 +109,22 @@ class UpdateService {
     } finally {
       client.close();
     }
+  }
+
+  /// Marks that the user has triggered an install for the given version.
+  static Future<void> markPendingInstall(String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingInstallKey, version);
+    debugPrint('[UpdateService] Marked pending install: $version');
+  }
+
+  /// Returns true if there's a pending install covering [latestVersion].
+  static Future<bool> hasPendingInstall(String latestVersion) async {
+    final prefs = await SharedPreferences.getInstance();
+    final pending = prefs.getString(_pendingInstallKey);
+    if (pending == null) return false;
+    // Pending covers this version if latest is not newer than pending
+    return !_isNewer(latestVersion, pending);
   }
 
   /// Returns true if [latest] is newer than [current] (semver comparison).

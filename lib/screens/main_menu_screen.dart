@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../services/achievement_provider.dart';
 import '../services/battlenet_api_service.dart';
@@ -10,6 +11,7 @@ import '../services/region_service.dart';
 import '../models/battlenet_region.dart';
 import '../theme/app_theme.dart';
 import '../services/auction_house_provider.dart';
+import '../services/update_service.dart';
 import '../services/wow_token_provider.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/wow_token_card.dart';
@@ -25,13 +27,29 @@ class MainMenuScreen extends StatefulWidget {
 }
 
 class _MainMenuScreenState extends State<MainMenuScreen> {
+  UpdateInfo? _pendingUpdate;
+  String _appVersion = '';
+
   @override
   void initState() {
     super.initState();
+    _loadVersion();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      UpdateDialog.checkAndShow(context);
+      _checkForUpdate();
       context.read<WowTokenProvider>().fetchTokenPrice();
     });
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _appVersion = info.version);
+  }
+
+  Future<void> _checkForUpdate() async {
+    final update = await UpdateDialog.checkAndShow(context);
+    if (mounted && update != null) {
+      setState(() => _pendingUpdate = update);
+    }
   }
 
   @override
@@ -178,7 +196,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                               ],
                             ],
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
+                          _buildVersionRow(),
+                          const SizedBox(height: 8),
                           Center(
                             child: GestureDetector(
                               onTap: () async {
@@ -257,6 +277,46 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildVersionRow() {
+    return Center(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_appVersion.isNotEmpty)
+            Text(
+              'v$_appVersion',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: AppTheme.textTertiary.withValues(alpha: 0.5),
+              ),
+            ),
+          if (_pendingUpdate != null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Text(
+                '·',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: AppTheme.textTertiary.withValues(alpha: 0.3),
+                ),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => UpdateDialog.show(context, _pendingUpdate!),
+              child: Text(
+                'Update available',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: const Color(0xFF3FC7EB),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

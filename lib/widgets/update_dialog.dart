@@ -8,11 +8,30 @@ import '../theme/app_theme.dart';
 
 /// Shows an update dialog if a newer version is available.
 class UpdateDialog {
-  static Future<void> checkAndShow(BuildContext context) async {
+  /// Checks for updates and auto-shows dialog if appropriate.
+  /// Returns [UpdateInfo] if an update is available (regardless of dialog).
+  static Future<UpdateInfo?> checkAndShow(BuildContext context) async {
     final update = await UpdateService.checkForUpdate();
-    if (update == null) return;
-    if (!context.mounted) return;
+    if (update == null) return null;
+    if (!context.mounted) return update;
 
+    // Suppress auto-dialog if user already triggered install for this version
+    final hasPending = await UpdateService.hasPendingInstall(update.latestVersion);
+    if (hasPending) return update;
+    if (!context.mounted) return update;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: 0.75),
+      builder: (_) => _UpdateDialogContent(update: update),
+    );
+
+    return update;
+  }
+
+  /// Shows the update dialog unconditionally (for manual trigger).
+  static void show(BuildContext context, UpdateInfo update) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -20,7 +39,6 @@ class UpdateDialog {
       builder: (_) => _UpdateDialogContent(update: update),
     );
   }
-
 }
 
 enum _UpdateState { prompt, downloading, error }
@@ -119,6 +137,7 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent>
           if (mounted) setState(() => _progress = progress);
         },
       );
+      await UpdateService.markPendingInstall(widget.update.latestVersion);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
