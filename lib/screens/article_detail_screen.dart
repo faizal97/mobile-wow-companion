@@ -30,8 +30,9 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
   }
 
   Future<void> _loadFullContent() async {
-    // If the article already has inline content from RSS, use it directly
-    if (widget.article.content.isNotEmpty) {
+    // If the article already has substantial inline content from RSS, use it directly
+    // (Wowhead RSS only has truncated excerpts, always fetch full for those)
+    if (widget.article.content.length > 500 && widget.article.source != 'wowhead') {
       setState(() {
         _fullContent = widget.article.content;
         _heroImage = widget.article.imageUrl;

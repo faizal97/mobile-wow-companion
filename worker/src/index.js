@@ -415,7 +415,7 @@ function parseBlizzardNews(html) {
           category: item.community || 'News',
           imageUrl,
           summary: item.summary || item.description || '',
-          content: '',
+          content: item.content || item.body || item.html || '',
           author: 'Blizzard Entertainment',
           publishedAt: item.created_at || item.updated_at || new Date().toISOString(),
           url: slug,
@@ -438,67 +438,79 @@ async function fetchWowheadNews(env) {
     });
   }
 
-  // Wowhead has an RSS feed that's more reliable than scraping HTML
-  const response = await fetch('https://www.wowhead.com/news/rss/all', {
-    headers: { 'User-Agent': 'WoWCompanion/1.0' },
-  });
+  let articles = [];
 
-  if (!response.ok) {
-    // Fallback: try the main news page
-    return await fetchWowheadNewsFallback(env);
-  }
-
-  const xml = await response.text();
-  const articles = parseRSS(xml, 'wowhead', 'https://www.wowhead.com');
-  const result = JSON.stringify(articles);
-
-  await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
-
-  return new Response(result, {
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-  });
-}
-
-async function fetchWowheadNewsFallback(env) {
-  const response = await fetch('https://www.wowhead.com/news', {
-    headers: { 'User-Agent': 'WoWCompanion/1.0' },
-  });
-
-  if (!response.ok) {
-    return json({ error: `Wowhead returned ${response.status}` }, 502);
-  }
-
-  const html = await response.text();
-  const articles = [];
-
-  // Wowhead news articles follow a pattern with data attributes
-  const articleRegex = /class="[^"]*news-list[^"]*"[\s\S]*?<a[^>]*href="(\/news\/[^"]+)"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>/gi;
-  let match;
-  while ((match = articleRegex.exec(html)) !== null) {
-    const href = match[1];
-    const title = match[2].replace(/<[^>]+>/g, '').trim();
-    if (title) {
-      articles.push({
-        id: `wowhead_${href.replace(/\//g, '_')}`,
-        title,
-        source: 'wowhead',
-        category: 'News',
-        imageUrl: null,
-        summary: '',
-        content: '',
-        author: null,
-        publishedAt: new Date().toISOString(),
-        url: `https://www.wowhead.com${href}`,
-      });
+  // Strategy 1: Direct RSS (has images + metadata, but content:encoded is truncated)
+  try {
+    const response = await fetch('https://www.wowhead.com/news/rss/all', {
+      headers: { 'User-Agent': 'WoWCompanion/1.0' },
+    });
+    if (response.ok) {
+      const xml = await response.text();
+      articles = parseRSS(xml, 'wowhead', 'https://www.wowhead.com');
     }
+  } catch (_) {}
+
+  // Strategy 2: Always try feed2json.org for full content_html
+  {
+    try {
+      const proxyUrl = 'https://feed2json.org/convert?url=' +
+        encodeURIComponent('https://www.wowhead.com/news/rss/all');
+      const response = await fetch(proxyUrl, { headers: { 'Accept': 'application/json' } });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.items && data.items.length > 0) {
+          // If we already have articles from direct RSS (with images), merge content
+          if (articles.length > 0) {
+            const contentMap = {};
+            for (const item of data.items) {
+              if (item.url && item.content_html) {
+                contentMap[item.url] = item.content_html;
+              }
+            }
+            for (const article of articles) {
+              if (contentMap[article.url]) {
+                article.content = contentMap[article.url];
+              }
+            }
+          } else {
+            // No direct RSS results, use feed2json entirely
+            for (const item of data.items) {
+              let imageUrl = item.image || null;
+              if (!imageUrl && item.content_html) {
+                const imgMatch = item.content_html.match(/<img[^>]*src="([^"]*)"[^>]*>/i);
+                if (imgMatch) imageUrl = imgMatch[1];
+              }
+              articles.push({
+                id: `wowhead_${articles.length}`,
+                title: item.title || '',
+                source: 'wowhead',
+                category: detectCategory(item.title || ''),
+                imageUrl,
+                summary: (item.summary || '').replace(/<[^>]+>/g, '').trim().substring(0, 300),
+                content: item.content_html || '',
+                author: item.author?.name || null,
+                publishedAt: item.date_published
+                  ? new Date(item.date_published).toISOString()
+                  : new Date().toISOString(),
+                url: item.url || item.id || '',
+              });
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
-  const result = JSON.stringify(articles);
-  await env.CACHE.put('news_wowhead', result, { expirationTtl: NEWS_CACHE_TTL });
+  if (articles.length > 0) {
+    const result = JSON.stringify(articles);
+    await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+    return new Response(result, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
 
-  return new Response(result, {
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-  });
+  return json([]);
 }
 
 // --- MMO-Champion News ---
@@ -511,57 +523,75 @@ async function fetchMMOChampionNews(env) {
     });
   }
 
-  // Try RSS feed first
-  const rssResponse = await fetch('https://www.mmo-champion.com/external.php?type=RSS2', {
-    headers: { 'User-Agent': 'WoWCompanion/1.0' },
-  });
-
+  // Use sectionid=1 for front-page news (not forum posts)
+  const mmocRssUrl = 'https://www.mmo-champion.com/external.php?do=rss&type=newcontent&sectionid=1&days=120&count=20';
   let articles = [];
 
-  if (rssResponse.ok) {
-    const xml = await rssResponse.text();
-    articles = parseRSS(xml, 'mmochampion', 'https://www.mmo-champion.com');
-  } else {
-    // Fallback: scrape main page
-    const response = await fetch('https://www.mmo-champion.com', {
+  // Strategy 1: Direct RSS (may have content:encoded)
+  try {
+    const rssResponse = await fetch(mmocRssUrl, {
       headers: { 'User-Agent': 'WoWCompanion/1.0' },
     });
-
-    if (!response.ok) {
-      return json({ error: `MMO-Champion returned ${response.status}` }, 502);
+    if (rssResponse.ok) {
+      const xml = await rssResponse.text();
+      articles = parseRSS(xml, 'mmochampion', 'https://www.mmo-champion.com');
     }
+  } catch (_) {}
 
-    const html = await response.text();
-
-    // MMO-Champion uses a standard blog layout
-    const postRegex = /<h2[^>]*>\s*<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>\s*<\/h2>/gi;
-    let match;
-    while ((match = postRegex.exec(html)) !== null) {
-      const href = match[1];
-      const title = match[2].replace(/<[^>]+>/g, '').trim();
-      if (title) {
-        articles.push({
-          id: `mmochampion_${articles.length}`,
-          title,
-          source: 'mmochampion',
-          category: detectCategory(title),
-          imageUrl: null,
-          summary: '',
-          content: '',
-          author: null,
-          publishedAt: new Date().toISOString(),
-          url: href.startsWith('http') ? href : `https://www.mmo-champion.com${href}`,
-        });
+  // Strategy 2: feed2json.org for full content_html
+  if (articles.length === 0 || !articles[0].content) {
+    try {
+      const proxyUrl = 'https://feed2json.org/convert?url=' + encodeURIComponent(mmocRssUrl);
+      const response = await fetch(proxyUrl, { headers: { 'Accept': 'application/json' } });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.items && data.items.length > 0) {
+          if (articles.length > 0) {
+            // Merge content into existing articles
+            const contentMap = {};
+            for (const item of data.items) {
+              if (item.url && item.content_html) contentMap[item.url] = item.content_html;
+            }
+            for (const article of articles) {
+              if (contentMap[article.url]) article.content = contentMap[article.url];
+            }
+          } else {
+            for (const item of data.items) {
+              let imageUrl = item.image || null;
+              if (!imageUrl && item.content_html) {
+                const imgMatch = item.content_html.match(/<img[^>]*src="([^"]*)"[^>]*>/i);
+                if (imgMatch) imageUrl = imgMatch[1];
+              }
+              articles.push({
+                id: `mmochampion_${articles.length}`,
+                title: item.title || '',
+                source: 'mmochampion',
+                category: detectCategory(item.title || ''),
+                imageUrl,
+                summary: (item.content_text || item.summary || '').substring(0, 300),
+                content: item.content_html || '',
+                author: item.author?.name || null,
+                publishedAt: item.date_published
+                  ? new Date(item.date_published).toISOString()
+                  : new Date().toISOString(),
+                url: item.url || item.id || '',
+              });
+            }
+          }
+        }
       }
-    }
+    } catch (_) {}
   }
 
-  const result = JSON.stringify(articles);
-  await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+  if (articles.length > 0) {
+    const result = JSON.stringify(articles);
+    await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+    return new Response(result, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
 
-  return new Response(result, {
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-  });
+  return json([]);
 }
 
 // --- Icy Veins News ---
@@ -778,20 +808,65 @@ function extractArticleContent(html, hostname) {
     }
     author = 'Blizzard Entertainment';
   } else if (hostname.includes('wowhead')) {
-    const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '');
-    // Wowhead uses various content containers
-    const bodyMatch = cleaned.match(/class="[^"]*news-post-body[^"]*">([\s\S]*?)(?:<\/div>\s*<div class="(?:comment|related)|<div id="(?:comment|related))/i)
-      || cleaned.match(/<div[^>]*class="[^"]*text[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div class="(?:comment|related))/i);
-    content = bodyMatch ? bodyMatch[1] : '';
-    const authorMatch = cleaned.match(/class="[^"]*(?:news-post-author|user-name)[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
+    // Wowhead injects content via WH.markup.printHtml() in a script tag.
+    // Extract the HTML string argument from that call.
+    const whMarkupMatch = html.match(/WH\.markup\.printHtml\("((?:[^"\\]|\\.)*)"/);
+    if (whMarkupMatch) {
+      try {
+        // The argument is a JSON-escaped string containing Wowhead markup
+        const rawMarkup = JSON.parse('"' + whMarkupMatch[1] + '"');
+        // Convert Wowhead markup tags [b], [url=...], [item=...] etc. to HTML
+        content = rawMarkup
+          .replace(/\[b\]/g, '<strong>').replace(/\[\/b\]/g, '</strong>')
+          .replace(/\[i\]/g, '<em>').replace(/\[\/i\]/g, '</em>')
+          .replace(/\[u\]/g, '<u>').replace(/\[\/u\]/g, '</u>')
+          .replace(/\[h2\]/g, '<h3>').replace(/\[\/h2\]/g, '</h3>')
+          .replace(/\[h3\]/g, '<h3>').replace(/\[\/h3\]/g, '</h3>')
+          .replace(/\[ul\]/g, '<ul>').replace(/\[\/ul\]/g, '</ul>')
+          .replace(/\[ol\]/g, '<ol>').replace(/\[\/ol\]/g, '</ol>')
+          .replace(/\[li\]/g, '<li>').replace(/\[\/li\]/g, '</li>')
+          .replace(/\[url=([^\]]*)\]([^[]*)\[\/url\]/g, '<a href="$1">$2</a>')
+          .replace(/\[img\]([^[]*)\[\/img\]/g, '<img src="$1">')
+          .replace(/\[quote[^\]]*\]/g, '<blockquote>').replace(/\[\/quote\]/g, '</blockquote>')
+          .replace(/\[db=live\]/g, '').replace(/\[\/db\]/g, '')
+          .replace(/\[(?:item|spell|npc|quest|achievement|event)=(\d+)[^\]]*\]/g, '')
+          .replace(/\[\/(?:item|spell|npc|quest|achievement|event)\]/g, '')
+          .replace(/\[hr\]/g, '<hr>')
+          .replace(/\[p\]/g, '<p>').replace(/\[\/p\]/g, '</p>')
+          .replace(/\[center\]/g, '').replace(/\[\/center\]/g, '')
+          .replace(/\[cta-button[^\]]*\][^[]*\[\/cta-button\]/g, '')
+          .replace(/\[screenshot[^\]]*\]/g, '')
+          .replace(/\[table[^\]]*\]/g, '<table>').replace(/\[\/table\]/g, '</table>')
+          .replace(/\[tr\]/g, '<tr>').replace(/\[\/tr\]/g, '</tr>')
+          .replace(/\[td[^\]]*\]/g, '<td>').replace(/\[\/td\]/g, '</td>')
+          .replace(/\[th[^\]]*\]/g, '<th>').replace(/\[\/th\]/g, '</th>')
+          .replace(/\[[a-z]+-[a-z]+[^\]]*\][^[]*\[\/[a-z]+-[a-z]+\]/g, '') // Remove unknown compound tags
+          .replace(/\[\/?[a-z]+[^\]]*\]/g, '') // Remove any remaining unknown tags
+          .replace(/\n/g, '<br>');
+      } catch (_) {}
+    }
+
+    // Fallback: extract from rendered HTML
+    if (!content || content.replace(/<[^>]+>/g, '').trim().length < 100) {
+      const bodyMatch = html.match(/class="news-post-content[^"]*"[^>]*>([\s\S]*?)(?:<div[^>]*class="[^"]*(?:news-post-newsletter|news-post-footer|news-recent|comments)[^"]*")/i);
+      if (bodyMatch) {
+        content = bodyMatch[1]
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '');
+      }
+    }
+
+    const authorMatch = html.match(/class="[^"]*news-post-header-details-author[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
     author = authorMatch ? authorMatch[1].replace(/<[^>]+>/g, '').trim() : null;
   } else if (hostname.includes('mmo-champion')) {
     const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '');
-    const bodyMatch = cleaned.match(/<div[^>]*class="[^"]*(?:content|post-body)[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div class="(?:post-footer|comment)|$)/i);
+    // MMO-C forum posts use pcm_content or post body divs
+    const bodyMatch = cleaned.match(/<div[^>]*class="[^"]*(?:pcm_content|content|post-body|postcontent)[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div class="(?:post-footer|comment|signature)|<\/blockquote>|$)/i)
+      || cleaned.match(/<blockquote[^>]*class="[^"]*postcontent[^"]*"[^>]*>([\s\S]*?)<\/blockquote>/i);
     content = bodyMatch ? bodyMatch[1] : '';
   } else if (hostname.includes('icy-veins')) {
     const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '');
-    const bodyMatch = cleaned.match(/<div[^>]*class="[^"]*(?:news_body|article-content|entry-content)[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div class="(?:comment|related)|<div id="(?:comment|disqus))/i)
+    const bodyMatch = cleaned.match(/<div[^>]*class="[^"]*(?:news_body|article-content|entry-content|post-content)[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div[^>]*class="[^"]*(?:comment|related|disqus|share)|<div id="(?:comment|disqus))/i)
       || cleaned.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
     content = bodyMatch ? bodyMatch[1] : '';
   }
