@@ -378,18 +378,32 @@ function parseBlizzardNews(html) {
       if (model.masthead?.features) allBlogs.push(...model.masthead.features);
       if (model.blogList?.blogs) allBlogs.push(...model.blogList.blogs);
 
+      const seen = new Set();
       for (const item of allBlogs) {
         const title = item.blog_title || item.title || '';
         if (!title) continue;
 
-        const slug = item.default_url || item.article_url || '';
+        let slug = item.default_url || item.article_url || '';
+        // Skip non-article links (shop, external)
+        if (!slug || slug.includes('shop.battle.net')) continue;
+
+        // Normalize URL: ensure it points to worldofwarcraft.blizzard.com
+        if (slug.startsWith('/')) {
+          slug = `https://worldofwarcraft.blizzard.com${slug}`;
+        } else if (slug.includes('worldofwarcraft.com') && !slug.includes('blizzard.com')) {
+          slug = slug.replace('worldofwarcraft.com', 'worldofwarcraft.blizzard.com');
+        }
+
+        // Deduplicate by title
+        if (seen.has(title)) continue;
+        seen.add(title);
+
         let imageUrl = null;
         if (item.header?.url) {
           imageUrl = item.header.url;
         } else if (item.thumbnail?.url) {
           imageUrl = item.thumbnail.url;
         }
-        // Fix protocol-relative URLs
         if (imageUrl && imageUrl.startsWith('//')) {
           imageUrl = `https:${imageUrl}`;
         }
@@ -404,43 +418,13 @@ function parseBlizzardNews(html) {
           content: '',
           author: 'Blizzard Entertainment',
           publishedAt: item.created_at || item.updated_at || new Date().toISOString(),
-          url: slug.startsWith('http') ? slug : `https://worldofwarcraft.blizzard.com${slug}`,
+          url: slug,
         });
       }
-      if (articles.length > 0) return articles;
     } catch (_) {}
   }
 
-  // Fallback: extract from any /en-us/news/ links with surrounding text
-  const linkRegex = /href="(\/en-us\/news\/[^"]+)"[^>]*>[^<]*<[^>]*>([^<]+)/gi;
-  let match;
-  const seen = new Set();
-  while ((match = linkRegex.exec(html)) !== null) {
-    const href = match[1];
-    const title = match[2].trim();
-    if (title && title.length > 10 && !seen.has(href)) {
-      seen.add(href);
-      // Try to find nearby image
-      const region = html.substring(Math.max(0, match.index - 1000), match.index + 500);
-      const imgMatch = region.match(/src="((?:https?:)?\/\/[^"]*(?:bnetcmsus|blz-contentstack|blog_thumbnail)[^"]*)"/i);
-      let imageUrl = imgMatch ? imgMatch[1] : null;
-      if (imageUrl && imageUrl.startsWith('//')) imageUrl = `https:${imageUrl}`;
-
-      articles.push({
-        id: `blizzard_${articles.length}`,
-        title,
-        source: 'blizzard',
-        category: 'News',
-        imageUrl,
-        summary: '',
-        content: '',
-        author: 'Blizzard Entertainment',
-        publishedAt: new Date().toISOString(),
-        url: `https://worldofwarcraft.blizzard.com${href}`,
-      });
-    }
-  }
-
+  // Only use the model-based results (fallback produced junk with homepage URLs)
   return articles;
 }
 
@@ -710,16 +694,19 @@ async function fetchRedditPosts(env) {
 
 // --- Article content extraction ---
 async function fetchArticleContent(url, env) {
-  const articleUrl = url.searchParams.get('url');
+  let articleUrl = url.searchParams.get('url');
   if (!articleUrl) {
     return json({ error: 'Missing url parameter' }, 400);
   }
+
+  // Normalize Blizzard URLs
+  articleUrl = articleUrl.replace('worldofwarcraft.com/', 'worldofwarcraft.blizzard.com/');
 
   // Validate URL is from allowed domains
   const allowed = ['worldofwarcraft.blizzard.com', 'www.wowhead.com', 'www.mmo-champion.com', 'www.icy-veins.com', 'icy-veins.com'];
   const parsedUrl = new URL(articleUrl);
   if (!allowed.includes(parsedUrl.hostname)) {
-    return json({ error: 'Domain not allowed' }, 403);
+    return json({ error: `Domain not allowed: ${parsedUrl.hostname}` }, 403);
   }
 
   const cacheKey = `article_${btoa(articleUrl).substring(0, 100)}`;
@@ -730,8 +717,10 @@ async function fetchArticleContent(url, env) {
     });
   }
 
+  // Fetch with redirect following
   const response = await fetch(articleUrl, {
     headers: { 'User-Agent': 'WoWCompanion/1.0' },
+    redirect: 'follow',
   });
 
   if (!response.ok) {
@@ -739,55 +728,77 @@ async function fetchArticleContent(url, env) {
   }
 
   const html = await response.text();
-  const article = extractArticleContent(html, parsedUrl.hostname);
+  const finalHostname = new URL(response.url || articleUrl).hostname;
+  const article = extractArticleContent(html, finalHostname);
 
-  const result = JSON.stringify(article);
-  await env.CACHE.put(cacheKey, result, { expirationTtl: ARTICLE_CACHE_TTL });
+  // Only cache if we got content
+  if (article.content || article.summary || article.imageUrl) {
+    const result = JSON.stringify(article);
+    await env.CACHE.put(cacheKey, result, { expirationTtl: ARTICLE_CACHE_TTL });
+    return new Response(result, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
 
-  return new Response(result, {
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-  });
+  return json(article);
 }
 
 function extractArticleContent(html, hostname) {
-  // Remove script and style tags
-  let cleaned = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '');
-
-  // Extract og:image for hero image
-  const ogImageMatch = cleaned.match(/<meta[^>]*property="og:image"[^>]*content="([^"]*)"[^>]*>/i);
+  // Extract og:image and og:description BEFORE stripping scripts
+  // (they're in <meta> tags, not scripts)
+  const ogImageMatch = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]*)"[^>]*>/i)
+    || html.match(/<meta[^>]*content="([^"]*)"[^>]*property="og:image"[^>]*>/i);
   const imageUrl = ogImageMatch ? ogImageMatch[1] : null;
 
-  // Extract og:description for summary
-  const ogDescMatch = cleaned.match(/<meta[^>]*property="og:description"[^>]*content="([^"]*)"[^>]*>/i);
+  const ogDescMatch = html.match(/<meta[^>]*property="og:description"[^>]*content="([^"]*)"[^>]*>/i)
+    || html.match(/<meta[^>]*content="([^"]*)"[^>]*property="og:description"[^>]*>/i);
   const summary = ogDescMatch ? ogDescMatch[1] : '';
 
-  // Extract article body based on source
   let content = '';
   let author = null;
 
-  if (hostname.includes('blizzard')) {
-    const bodyMatch = cleaned.match(/class="[^"]*Blog-content[^"]*">([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/i);
-    content = bodyMatch ? bodyMatch[1] : '';
+  if (hostname.includes('blizzard') || hostname.includes('worldofwarcraft')) {
+    // Blizzard news pages are SPAs — article content is in the model JS variable
+    const modelMatch = html.match(/model\s*=\s*(\{[\s\S]*?\});\s*(?:var|const|let|<\/script>)/);
+    if (modelMatch) {
+      try {
+        const model = JSON.parse(modelMatch[1]);
+        // The article detail page has a 'blog' object with the content
+        const blog = model.blog || model.article || model;
+        content = blog.content || blog.body || blog.html || '';
+      } catch (_) {}
+    }
+    // Fallback: try traditional HTML extraction
+    if (!content) {
+      const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+      const bodyMatch = cleaned.match(/class="[^"]*(?:Blog-content|blog-detail|article-content|news-detail)[^"]*">([\s\S]*?)<\/(?:section|article|main)/i)
+        || cleaned.match(/<article[^>]*>([\s\S]*?)<\/article>/i)
+        || cleaned.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+      content = bodyMatch ? bodyMatch[1] : '';
+    }
     author = 'Blizzard Entertainment';
   } else if (hostname.includes('wowhead')) {
-    const bodyMatch = cleaned.match(/class="[^"]*news-post-body[^"]*">([\s\S]*?)<\/div>\s*(?:<div class="(?:comment|related))/i);
+    const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+    // Wowhead uses various content containers
+    const bodyMatch = cleaned.match(/class="[^"]*news-post-body[^"]*">([\s\S]*?)(?:<\/div>\s*<div class="(?:comment|related)|<div id="(?:comment|related))/i)
+      || cleaned.match(/<div[^>]*class="[^"]*text[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div class="(?:comment|related))/i);
     content = bodyMatch ? bodyMatch[1] : '';
-    const authorMatch = cleaned.match(/class="[^"]*news-post-author[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
+    const authorMatch = cleaned.match(/class="[^"]*(?:news-post-author|user-name)[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
     author = authorMatch ? authorMatch[1].replace(/<[^>]+>/g, '').trim() : null;
   } else if (hostname.includes('mmo-champion')) {
-    const bodyMatch = cleaned.match(/class="[^"]*content[^"]*">([\s\S]*?)<\/div>\s*<div class="(?:post-footer|comment)/i);
+    const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+    const bodyMatch = cleaned.match(/<div[^>]*class="[^"]*(?:content|post-body)[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div class="(?:post-footer|comment)|$)/i);
     content = bodyMatch ? bodyMatch[1] : '';
   } else if (hostname.includes('icy-veins')) {
-    const bodyMatch = cleaned.match(/class="[^"]*news_body[^"]*">([\s\S]*?)<\/div>\s*<div class="(?:comment|related)/i);
+    const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+    const bodyMatch = cleaned.match(/<div[^>]*class="[^"]*(?:news_body|article-content|entry-content)[^"]*"[^>]*>([\s\S]*?)(?:<\/div>\s*<div class="(?:comment|related)|<div id="(?:comment|disqus))/i)
+      || cleaned.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
     content = bodyMatch ? bodyMatch[1] : '';
   }
 
-  // Clean up the content HTML
+  // Clean up the content HTML — keep structure tags for reader rendering
   content = content
-    .replace(/<(?:nav|header|footer|aside|script|style|iframe|noscript)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<(?:nav|header|footer|aside|iframe|noscript|script|style)[\s\S]*?<\/(?:nav|header|footer|aside|iframe|noscript|script|style)>/gi, '')
     .replace(/class="[^"]*"/g, '')
     .replace(/style="[^"]*"/g, '')
     .replace(/id="[^"]*"/g, '')
