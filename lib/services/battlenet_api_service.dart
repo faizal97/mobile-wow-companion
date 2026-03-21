@@ -798,10 +798,11 @@ class BattleNetApiService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final results = data['results'] as List? ?? [];
-        return results
+        final items = results
             .map((r) => AuctionItem.fromSearchResult(
                 r as Map<String, dynamic>, _locale))
             .toList();
+        return AuctionItem.assignCraftingTiers(items);
       }
       return [];
     } catch (_) {

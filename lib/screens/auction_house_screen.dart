@@ -399,14 +399,29 @@ class _AuctionItemTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  item.name,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textPrimary,
-                    height: 1.2,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        item.name,
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textPrimary,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                    if (item.craftingTier != null &&
+                        _tierAssets.containsKey(item.craftingTier)) ...[
+                      const SizedBox(width: 6),
+                      Image.asset(
+                        _tierAssets[item.craftingTier]!,
+                        width: 16,
+                        height: 16,
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 2),
                 if (showPrice && item.price != null)
@@ -429,6 +444,7 @@ class _AuctionItemTile extends StatelessWidget {
                       color: AppTheme.textSecondary,
                     ),
                   ),
+                _buildQualityLabel(),
               ],
             ),
           ),
@@ -455,6 +471,29 @@ class _AuctionItemTile extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static const _tierAssets = {
+    1: 'assets/icons/reagent_quality_silver.png',
+    2: 'assets/icons/reagent_quality_gold.png',
+  };
+
+  Widget _buildQualityLabel() {
+    if (item.quality != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(
+          item.quality!.label,
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: item.quality!.color,
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 
   Widget _buildIcon() {

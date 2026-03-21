@@ -12,6 +12,10 @@ void main() {
             'name': {'en_US': 'Herb'},
           },
           'media': {'id': 210796},
+          'quality': {
+            'type': 'UNCOMMON',
+            'name': {'en_US': 'Uncommon'},
+          },
         },
       };
       final item = AuctionItem.fromSearchResult(json, 'en_US');
@@ -19,6 +23,7 @@ void main() {
       expect(item.name, 'Mycbloom');
       expect(item.subclass, 'Herb');
       expect(item.mediaId, 210796);
+      expect(item.quality, ItemQuality.uncommon);
     });
 
     test('gold/silver/copper breakdown from copper price', () {
@@ -50,6 +55,7 @@ void main() {
         subclass: 'Herb',
         iconUrl: 'https://example.com/icon.jpg',
         mediaId: 210796,
+        quality: ItemQuality.uncommon,
         price: 85000,
         totalQuantity: 1247,
       );
@@ -60,6 +66,7 @@ void main() {
       expect(restored.subclass, item.subclass);
       expect(restored.iconUrl, item.iconUrl);
       expect(restored.mediaId, item.mediaId);
+      expect(restored.quality, ItemQuality.uncommon);
     });
 
     test('copyWith creates updated copy', () {
@@ -69,6 +76,44 @@ void main() {
       expect(updated.totalQuantity, 100);
       expect(updated.id, 1);
       expect(updated.name, 'Test');
+    });
+
+    test('assignCraftingTiers assigns tiers by ID order within same group', () {
+      const items = [
+        AuctionItem(id: 236774, name: 'Azeroot', modifiedCraftingId: 552),
+        AuctionItem(id: 242301, name: 'Azeroot Tea'),
+        AuctionItem(id: 236775, name: 'Azeroot', modifiedCraftingId: 552),
+      ];
+      final result = AuctionItem.assignCraftingTiers(items);
+
+      // Same name + mcId → tiers assigned by ID order
+      expect(result[0].craftingTier, 1); // id 236774 (lower)
+      expect(result[2].craftingTier, 2); // id 236775 (higher)
+
+      // No mcId → no tier assigned
+      expect(result[1].craftingTier, isNull);
+    });
+
+    test('assignCraftingTiers skips single items in a group', () {
+      const items = [
+        AuctionItem(id: 100, name: 'Ore', modifiedCraftingId: 10),
+        AuctionItem(id: 200, name: 'Herb', modifiedCraftingId: 20),
+      ];
+      final result = AuctionItem.assignCraftingTiers(items);
+      expect(result[0].craftingTier, isNull);
+      expect(result[1].craftingTier, isNull);
+    });
+
+    test('toJson and fromJson round-trip preserves crafting tier', () {
+      const item = AuctionItem(
+        id: 236774,
+        name: 'Azeroot',
+        modifiedCraftingId: 552,
+        craftingTier: 1,
+      );
+      final restored = AuctionItem.fromJson(item.toJson());
+      expect(restored.modifiedCraftingId, 552);
+      expect(restored.craftingTier, 1);
     });
   });
 }
