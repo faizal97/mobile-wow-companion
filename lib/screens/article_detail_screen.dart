@@ -30,6 +30,17 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
   }
 
   Future<void> _loadFullContent() async {
+    // If the article already has inline content from RSS, use it directly
+    if (widget.article.content.isNotEmpty) {
+      setState(() {
+        _fullContent = widget.article.content;
+        _heroImage = widget.article.imageUrl;
+        _isLoadingContent = false;
+      });
+      return;
+    }
+
+    // Otherwise fetch from the /news/article endpoint
     setState(() => _isLoadingContent = true);
     try {
       final provider = context.read<NewsProvider>();

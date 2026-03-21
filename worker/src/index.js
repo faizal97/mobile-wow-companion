@@ -618,7 +618,7 @@ async function fetchIcyVeinsNews(env) {
               category: detectCategory(item.title || ''),
               imageUrl: imageUrl || null,
               summary: (item.content_text || item.summary || '').substring(0, 300),
-              content: '',
+              content: item.content_html || item.content || '',
               author: item.author?.name || null,
               publishedAt: item.date_published
                 ? new Date(item.date_published).toISOString()
@@ -819,6 +819,7 @@ function parseRSS(xml, source, baseUrl) {
     const title = extractTag(item, 'title');
     const link = extractTag(item, 'link') || extractTag(item, 'guid');
     const description = extractTag(item, 'description');
+    const contentEncoded = extractTag(item, 'content:encoded');
     const pubDate = extractTag(item, 'pubDate');
     const creator = extractTag(item, 'dc:creator') || extractTag(item, 'author');
     const category = extractTag(item, 'category');
@@ -831,9 +832,14 @@ function parseRSS(xml, source, baseUrl) {
       || (description && description.match(/<img[^>]*src="([^"]*)"[^>]*>/i));
     const imageUrl = mediaMatch ? mediaMatch[1].trim() : null;
 
-    // Clean description of HTML
+    // Clean description of HTML for summary
     const summary = description
       ? description.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, '').trim().substring(0, 300)
+      : '';
+
+    // Full article content from content:encoded (CDATA stripped, HTML preserved)
+    const fullContent = contentEncoded
+      ? contentEncoded.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim()
       : '';
 
     if (title && link) {
@@ -844,7 +850,7 @@ function parseRSS(xml, source, baseUrl) {
         category: category ? category.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim() : detectCategory(title),
         imageUrl,
         summary,
-        content: '',
+        content: fullContent,
         author: creator ? creator.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim() : null,
         publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
         url: link.startsWith('http') ? link : `${baseUrl}${link}`,
