@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=414, initial-scale=1.0">
+<title>WoW Companion — News Feed Prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0D0D14;
+    --surface: #16161F;
+    --surface-elevated: #1E1E2A;
+    --surface-border: #2A2A38;
+    --text-primary: #F0F0F5;
+    --text-secondary: #8888A0;
+    --text-tertiary: #55556A;
+    --accent: #3FC7EB;
+    --gold: #FFD700;
+    --blizzard: #00AEFF;
+    --wowhead: #DE3804;
+    --mmochamp: #A335EE;
+    --icyveins: #69CCF0;
+    --reddit: #FF4500;
+    --radius: 16px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #08080C;
+    font-family: 'Inter', sans-serif;
+    color: var(--text-primary);
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    padding: 40px 24px;
+    flex-wrap: wrap;
+    min-height: 100vh;
+  }
+
+  /* Screen frame */
+  .phone-frame {
+    width: 390px;
+    height: 844px;
+    background: var(--bg);
+    border-radius: 40px;
+    border: 2px solid var(--surface-border);
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  }
+
+  .phone-frame .screen {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-border) transparent;
+  }
+
+  .phone-frame .screen::-webkit-scrollbar { width: 3px; }
+  .phone-frame .screen::-webkit-scrollbar-track { background: transparent; }
+  .phone-frame .screen::-webkit-scrollbar-thumb { background: var(--surface-border); border-radius: 2px; }
+
+  .screen-label {
+    text-align: center;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 16px;
+  }
+
+  /* ========== SHARED COMPONENTS ========== */
+
+  .section-header {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 28px 20px 12px;
+  }
+
+  .source-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+
+  .source-badge.blizzard { background: rgba(0,174,255,0.15); color: var(--blizzard); }
+  .source-badge.wowhead { background: rgba(222,56,4,0.15); color: var(--wowhead); }
+  .source-badge.mmochamp { background: rgba(163,53,238,0.15); color: var(--mmochamp); }
+  .source-badge.icyveins { background: rgba(105,204,240,0.15); color: var(--icyveins); }
+  .source-badge.reddit { background: rgba(255,69,0,0.12); color: var(--reddit); }
+
+  .category-badge {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    background: rgba(255,255,255,0.04);
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .time-ago {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  /* ========== SCREEN 1: DASHBOARD ========== */
+
+  .dashboard-content { padding: 0 24px; }
+
+  .dashboard-header-area {
+    background: linear-gradient(180deg, #101018 0%, var(--bg) 100%);
+    padding: 52px 24px 0;
+  }
+
+  .dashboard-subtitle {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: 2px;
+  }
+
+  .dashboard-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+    margin-top: 4px;
+  }
+
+  .dashboard-region {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    letter-spacing: 1px;
+    margin-top: 8px;
+  }
+
+  .token-card {
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-top: 40px;
+  }
+
+  .token-row { display: flex; align-items: center; gap: 8px; }
+  .token-icon { color: var(--gold); font-size: 20px; }
+  .token-label { font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 600; color: var(--text-primary); }
+  .token-time { margin-left: auto; font-family: 'Inter', sans-serif; font-size: 11px; color: var(--text-tertiary); }
+  .token-price { margin-top: 12px; display: flex; align-items: baseline; gap: 4px; }
+  .token-price .amount { font-family: 'Rajdhani', sans-serif; font-size: 32px; font-weight: 700; color: var(--text-primary); line-height: 1; }
+  .token-price .unit { font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 600; color: var(--text-tertiary); }
+
+  /* News Preview Card */
+  .news-preview-card {
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-top: 16px;
+  }
+
+  .news-preview-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .news-preview-icon { color: var(--accent); font-size: 18px; }
+  .news-preview-title { font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 600; color: var(--text-primary); }
+  .news-preview-see-all { margin-left: auto; font-family: 'Inter', sans-serif; font-size: 12px; color: var(--accent); cursor: pointer; }
+
+  .news-preview-item {
+    display: flex;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+  }
+
+  .news-preview-item:first-child { border-top: none; padding-top: 0; }
+  .news-preview-item:last-child { padding-bottom: 0; }
+
+  .news-preview-thumb {
+    width: 52px; height: 52px;
+    border-radius: 8px;
+    background: var(--surface-elevated);
+    flex-shrink: 0;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .news-preview-text { flex: 1; min-width: 0; }
+  .news-preview-text .meta { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .news-preview-text .headline {
+    font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 600;
+    color: var(--text-primary); line-height: 1.3;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* Menu card */
+  .menu-card {
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+  }
+
+  .menu-icon-box {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; font-size: 24px;
+  }
+
+  .menu-card-text { flex: 1; }
+  .menu-card-title { font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 600; color: var(--text-primary); }
+  .menu-card-sub { font-family: 'Inter', sans-serif; font-size: 13px; color: var(--text-secondary); }
+  .menu-chevron { color: var(--text-tertiary); font-size: 20px; }
+
+  /* ========== SCREEN 2: FULL NEWS SCREEN ========== */
+
+  .news-screen-top-bar {
+    display: flex; align-items: center;
+    padding: 52px 8px 4px; gap: 4px;
+  }
+
+  .back-btn {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent); font-size: 22px; cursor: pointer;
+  }
+
+  .top-bar-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 16px; font-weight: 700;
+    color: var(--text-secondary); letter-spacing: 2px;
+  }
+
+  /* Search bar */
+  .search-bar {
+    margin: 12px 20px 0;
+    display: flex; align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 0 14px; height: 44px; gap: 10px;
+  }
+
+  .search-bar .search-icon { color: var(--text-tertiary); font-size: 18px; flex-shrink: 0; }
+
+  .search-bar input {
+    flex: 1; background: none; border: none; outline: none;
+    font-family: 'Inter', sans-serif; font-size: 14px; color: var(--text-primary);
+  }
+
+  .search-bar input::placeholder { color: var(--text-tertiary); }
+
+  /* ─── Toolbar row (matches mount journal pattern) ─── */
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px 0;
+    gap: 10px;
+  }
+
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .toolbar-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--surface-border);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .toolbar-btn .btn-icon {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  .toolbar-btn .btn-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .toolbar-btn.active {
+    background: rgba(63,199,235,0.1);
+    border-color: rgba(63,199,235,0.3);
+  }
+
+  .toolbar-btn.active .btn-icon,
+  .toolbar-btn.active .btn-label {
+    color: var(--accent);
+  }
+
+  .toolbar-btn .filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 0 4px;
+    margin-left: 2px;
+  }
+
+  .toolbar-result-count {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+  }
+
+  .toolbar-result-count .count-highlight {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ─── Filter Bottom Sheet Overlay ─── */
+  .sheet-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 10;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .filter-sheet {
+    background: var(--surface-elevated);
+    border-radius: 20px 20px 0 0;
+    width: 100%;
+    max-height: 75%;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.3s ease-out;
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .sheet-handle {
+    width: 32px; height: 4px;
+    background: var(--surface-border);
+    border-radius: 2px;
+    margin: 16px auto 0;
+  }
+
+  .sheet-header {
+    display: flex;
+    align-items: center;
+    padding: 16px 24px 0;
+    gap: 8px;
+  }
+
+  .sheet-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .sheet-active-badge {
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: rgba(63,199,235,0.15);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+
+  .sheet-reset {
+    margin-left: auto;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+  }
+
+  .sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px 0;
+  }
+
+  .filter-section-header {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .filter-tags-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+
+  .filter-tag {
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--surface-border);
+    background: var(--surface);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .filter-tag.selected {
+    font-weight: 600;
+  }
+
+  .filter-tag.selected.accent {
+    background: rgba(63,199,235,0.15);
+    border-color: rgba(63,199,235,0.4);
+    color: var(--accent);
+  }
+
+  .filter-tag .tag-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .filter-tag.selected.blizzard-tag {
+    background: rgba(0,174,255,0.15);
+    border-color: rgba(0,174,255,0.4);
+    color: var(--blizzard);
+  }
+
+  .filter-tag.selected.wowhead-tag {
+    background: rgba(222,56,4,0.15);
+    border-color: rgba(222,56,4,0.4);
+    color: var(--wowhead);
+  }
+
+  .filter-tag.selected.mmochamp-tag {
+    background: rgba(163,53,238,0.15);
+    border-color: rgba(163,53,238,0.4);
+    color: var(--mmochamp);
+  }
+
+  .filter-tag.selected.icyveins-tag {
+    background: rgba(105,204,240,0.15);
+    border-color: rgba(105,204,240,0.4);
+    color: var(--icyveins);
+  }
+
+  .sheet-footer {
+    padding: 12px 24px 20px;
+  }
+
+  .apply-btn {
+    width: 100%;
+    height: 48px;
+    border: none;
+    border-radius: 12px;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .apply-btn:hover { opacity: 0.9; }
+
+  /* ─── News feed cards ─── */
+  .news-feed { padding: 0 20px; }
+
+  .news-card {
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 12px;
+    cursor: pointer;
+  }
+
+  .news-card-thumb {
+    width: 100%; height: 140px;
+    background: var(--surface-elevated);
+    position: relative; overflow: hidden;
+  }
+
+  .news-card-thumb .thumb-gradient {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 60px;
+    background: linear-gradient(transparent, var(--surface));
+  }
+
+  .news-card-body { padding: 14px 16px 16px; }
+
+  .news-card-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+  .news-card-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 17px; font-weight: 600;
+    color: var(--text-primary); line-height: 1.25; margin-bottom: 6px;
+  }
+
+  .news-card-snippet {
+    font-family: 'Inter', sans-serif; font-size: 13px; color: var(--text-secondary);
+    line-height: 1.5;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* Compact news card */
+  .news-card-compact {
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    display: flex;
+    gap: 14px;
+  }
+
+  .compact-thumb {
+    width: 72px; height: 72px;
+    border-radius: 10px;
+    background: var(--surface-elevated);
+    flex-shrink: 0; overflow: hidden;
+  }
+
+  .compact-text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+
+  .compact-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 600;
+    color: var(--text-primary); line-height: 1.25; margin-top: 4px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  .compact-snippet {
+    font-family: 'Inter', sans-serif; font-size: 12px; color: var(--text-tertiary);
+    margin-top: 4px;
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* Reddit section */
+  .section-divider {
+    display: flex; align-items: center; gap: 12px;
+    padding: 24px 20px 14px;
+  }
+
+  .section-divider::before, .section-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--surface-border);
+  }
+
+  .section-divider .divider-label {
+    font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 600;
+    color: var(--text-tertiary); letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap;
+  }
+
+  .reddit-card {
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+
+  .reddit-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 600;
+    color: var(--text-primary); line-height: 1.3; margin-bottom: 8px;
+  }
+
+  .reddit-meta { display: flex; align-items: center; gap: 12px; }
+
+  .reddit-stat {
+    display: flex; align-items: center; gap: 4px;
+    font-family: 'Inter', sans-serif; font-size: 12px; color: var(--text-tertiary);
+  }
+
+  .reddit-stat .stat-icon { font-size: 14px; }
+  .reddit-stat.upvotes { color: var(--reddit); }
+
+  .reddit-flair {
+    font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 500;
+    color: var(--text-tertiary); background: rgba(255,255,255,0.04);
+    padding: 2px 6px; border-radius: 3px; margin-left: auto;
+  }
+
+  /* ========== SCREEN 3: ARTICLE DETAIL ========== */
+
+  .article-top-bar {
+    display: flex; align-items: center;
+    padding: 52px 8px 4px; gap: 4px;
+  }
+
+  .article-top-actions { margin-left: auto; display: flex; gap: 4px; }
+
+  .action-btn {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary); font-size: 20px; cursor: pointer;
+    border-radius: 10px;
+  }
+
+  .article-content { padding: 8px 24px 40px; }
+
+  .article-source-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+
+  .article-date { font-family: 'Inter', sans-serif; font-size: 12px; color: var(--text-tertiary); }
+
+  .article-title {
+    font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700;
+    color: var(--text-primary); line-height: 1.15; margin-bottom: 6px; letter-spacing: -0.3px;
+  }
+
+  .article-author { font-family: 'Inter', sans-serif; font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+
+  .article-hero-image {
+    width: 100%; height: 200px;
+    border-radius: 12px;
+    background: var(--surface-elevated);
+    margin-bottom: 24px; overflow: hidden;
+    border: 1px solid var(--surface-border);
+  }
+
+  .article-body {
+    font-family: 'Inter', sans-serif; font-size: 15px;
+    color: var(--text-secondary); line-height: 1.75;
+  }
+
+  .article-body p { margin-bottom: 16px; }
+
+  .article-body h3 {
+    font-family: 'Rajdhani', sans-serif; font-size: 19px; font-weight: 600;
+    color: var(--text-primary); margin: 28px 0 10px;
+  }
+
+  .article-body strong { color: var(--text-primary); font-weight: 600; }
+  .article-body ul { margin-bottom: 16px; padding-left: 20px; }
+  .article-body li { margin-bottom: 6px; line-height: 1.6; }
+  .article-body .spell-link { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(63,199,235,0.3); }
+  .article-body .item-link { color: var(--mmochamp); text-decoration: none; border-bottom: 1px solid rgba(163,53,238,0.3); }
+
+  .article-body blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px; margin: 16px 0;
+    background: rgba(63,199,235,0.04);
+    border-radius: 0 8px 8px 0;
+    font-style: italic; color: var(--text-secondary);
+  }
+
+  /* Open in browser FAB */
+  .open-browser-fab {
+    position: absolute; bottom: 24px; right: 20px;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--accent); color: #0D0D14;
+    font-family: 'Rajdhani', sans-serif; font-size: 14px; font-weight: 700;
+    padding: 12px 20px; border-radius: 28px; cursor: pointer;
+    box-shadow: 0 4px 20px rgba(63,199,235,0.3);
+    letter-spacing: 0.5px;
+  }
+
+  .open-browser-fab .fab-icon { font-size: 18px; }
+
+  /* Real thumbnail images */
+  .thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Fallback: source-tinted gradient with category icon */
+  .img-fallback {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.08);
+    font-size: 32px;
+    position: relative;
+  }
+
+  .img-fallback::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.6;
+  }
+
+  .img-fallback.blizz-tint { background: linear-gradient(135deg, #0a1020 0%, rgba(0,174,255,0.12) 100%); }
+  .img-fallback.wh-tint { background: linear-gradient(135deg, #1a0e08 0%, rgba(222,56,4,0.12) 100%); }
+  .img-fallback.mmo-tint { background: linear-gradient(135deg, #120a1e 0%, rgba(163,53,238,0.12) 100%); }
+  .img-fallback.iv-tint { background: linear-gradient(135deg, #0a1418 0%, rgba(105,204,240,0.12) 100%); }
+
+  .img-fallback .fallback-icon {
+    position: relative;
+    z-index: 1;
+    font-size: inherit;
+    opacity: 0.25;
+  }
+
+  /* Source logo mark in fallback */
+  .img-fallback .source-mark {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    opacity: 0.15;
+    z-index: 1;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== SCREEN 1: MAIN MENU WITH NEWS CARD ==================== -->
+<div>
+  <div class="phone-frame">
+    <div class="screen">
+      <div class="dashboard-header-area">
+        <div class="dashboard-subtitle">WOW WARBAND</div>
+        <div class="dashboard-title">Companion</div>
+        <div class="dashboard-region">US &middot; North America</div>
+      </div>
+
+      <div class="dashboard-content">
+        <div class="token-card">
+          <div class="token-row">
+            <span class="token-icon">&#x29BE;</span>
+            <span class="token-label">WoW Token</span>
+            <span class="token-time">32m ago</span>
+          </div>
+          <div class="token-price">
+            <span class="amount">348,219</span>
+            <span class="unit">g</span>
+          </div>
+        </div>
+
+        <!-- News Preview Card -->
+        <div class="news-preview-card">
+          <div class="news-preview-header">
+            <span class="news-preview-icon">&#x2139;</span>
+            <span class="news-preview-title">Latest News</span>
+            <span class="news-preview-see-all">See all &#x203A;</span>
+          </div>
+
+          <div class="news-preview-item">
+            <div class="news-preview-thumb">
+              <img class="thumb-img" src="https://bnetcmsus-a.akamaihd.net/cms/blog_thumbnail/vn/VNVI1LDE8NP51772694004728.png" alt="">
+            </div>
+            <div class="news-preview-text">
+              <div class="meta">
+                <span class="source-badge blizzard">Blizzard</span>
+                <span class="time-ago">4d ago</span>
+              </div>
+              <div class="headline">Midnight Season 1 Has Begun!</div>
+            </div>
+          </div>
+
+          <div class="news-preview-item">
+            <div class="news-preview-thumb">
+              <div class="img-fallback wh-tint" style="font-size:20px;">
+                <span class="fallback-icon">&#x2728;</span>
+              </div>
+            </div>
+            <div class="news-preview-text">
+              <div class="meta">
+                <span class="source-badge wowhead">Wowhead</span>
+                <span class="time-ago">5h ago</span>
+              </div>
+              <div class="headline">Best M+ Builds for Midnight S1 — All Classes Ranked</div>
+            </div>
+          </div>
+
+          <div class="news-preview-item">
+            <div class="news-preview-thumb">
+              <img class="thumb-img" src="https://blz-contentstack-images.akamaized.net/v3/assets/blt3452e3b114fab0cd/blt9f0607eaad893fd3/69b8565cfa418b0008e9608e/WoW_CharityPetAsset&StaticBanners_BlogLightbox_1280x720.png" alt="">
+            </div>
+            <div class="news-preview-text">
+              <div class="meta">
+                <span class="source-badge blizzard">Blizzard</span>
+                <span class="time-ago">4d ago</span>
+              </div>
+              <div class="headline">Adopt Roofus and Support Habitat for Humanity!</div>
+            </div>
+          </div>
+
+          <div class="news-preview-item">
+            <div class="news-preview-thumb">
+              <div class="img-fallback iv-tint" style="font-size:20px;">
+                <span class="fallback-icon">&#x2744;</span>
+              </div>
+            </div>
+            <div class="news-preview-text">
+              <div class="meta">
+                <span class="source-badge icyveins">IcyVeins</span>
+                <span class="time-ago">12h ago</span>
+              </div>
+              <div class="headline">Frost Mage Midnight S1 Guide — Talents, Rotation, and BiS</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="menu-card">
+          <div class="menu-icon-box" style="background: rgba(255,215,0,0.1);">
+            <span style="color: var(--gold);">&#x1F3EA;</span>
+          </div>
+          <div class="menu-card-text">
+            <div class="menu-card-title">Auction House</div>
+            <div class="menu-card-sub">Check commodity prices</div>
+          </div>
+          <span class="menu-chevron">&#x203A;</span>
+        </div>
+
+        <div class="menu-card">
+          <div class="menu-icon-box" style="background: rgba(63,199,235,0.1);">
+            <span style="color: var(--accent);">&#x1F465;</span>
+          </div>
+          <div class="menu-card-text">
+            <div class="menu-card-title">Characters</div>
+            <div class="menu-card-sub">8 characters</div>
+          </div>
+          <span class="menu-chevron">&#x203A;</span>
+        </div>
+
+        <div class="menu-card">
+          <div class="menu-icon-box" style="background: rgba(63,199,235,0.1);">
+            <span style="color: var(--accent);">&#x1F3C6;</span>
+          </div>
+          <div class="menu-card-text">
+            <div class="menu-card-title">Achievements</div>
+            <div class="menu-card-sub">18,230 points</div>
+          </div>
+          <span class="menu-chevron">&#x203A;</span>
+        </div>
+
+        <div style="height: 40px;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="screen-label">Dashboard with News Card</div>
+</div>
+
+<!-- ==================== SCREEN 2: NEWS SCREEN (with filter sheet) ==================== -->
+<div>
+  <div class="phone-frame">
+    <div class="screen">
+      <div class="news-screen-top-bar">
+        <div class="back-btn">&#x2190;</div>
+        <div class="top-bar-title">NEWS</div>
+      </div>
+
+      <!-- Search -->
+      <div class="search-bar">
+        <span class="search-icon">&#x1F50E;</span>
+        <input type="text" placeholder="Search news...">
+      </div>
+
+      <!-- Toolbar row (mount journal pattern) -->
+      <div class="toolbar-row">
+        <div class="toolbar-left">
+          <!-- Sort button -->
+          <div class="toolbar-btn">
+            <span class="btn-icon">&#x21C5;</span>
+            <span class="btn-label">Latest</span>
+          </div>
+          <!-- Filter button with active count -->
+          <div class="toolbar-btn active">
+            <span class="btn-icon">&#x2630;</span>
+            <span class="btn-label">Filters</span>
+            <span class="filter-count">3</span>
+          </div>
+        </div>
+        <span class="toolbar-result-count"><span class="count-highlight">24</span> articles</span>
+      </div>
+
+      <!-- News Feed -->
+      <div class="section-header">TODAY</div>
+      <div class="news-feed">
+        <!-- Featured card: real thumbnail -->
+        <div class="news-card">
+          <div class="news-card-thumb">
+            <img class="thumb-img" src="https://bnetcmsus-a.akamaihd.net/cms/blog_thumbnail/vn/VNVI1LDE8NP51772694004728.png" alt="">
+            <div class="thumb-gradient"></div>
+          </div>
+          <div class="news-card-body">
+            <div class="news-card-meta">
+              <span class="source-badge blizzard">Blizzard</span>
+              <span class="category-badge">Launch</span>
+              <span class="time-ago" style="margin-left:auto;">4d ago</span>
+            </div>
+            <div class="news-card-title">Midnight Season 1 Has Begun!</div>
+            <div class="news-card-snippet">The next chapter of World of Warcraft is here. Dive into new dungeons, raids, and the all-new Midnight Season 1 content update.</div>
+          </div>
+        </div>
+
+        <!-- Compact: fallback (no thumbnail from Wowhead) -->
+        <div class="news-card-compact">
+          <div class="compact-thumb">
+            <div class="img-fallback wh-tint" style="font-size:24px;">
+              <span class="fallback-icon">&#x2728;</span>
+              <span class="source-mark">WH</span>
+            </div>
+          </div>
+          <div class="compact-text">
+            <div class="news-card-meta" style="margin-bottom:0;">
+              <span class="source-badge wowhead">Wowhead</span>
+              <span class="category-badge">Guide</span>
+              <span class="time-ago" style="margin-left:auto;">5h</span>
+            </div>
+            <div class="compact-title">Best M+ Builds for Midnight S1 — All Classes Ranked and Compared</div>
+            <div class="compact-snippet">Updated tier list with post-patch performance data</div>
+          </div>
+        </div>
+
+        <!-- Compact: real thumbnail -->
+        <div class="news-card-compact">
+          <div class="compact-thumb">
+            <img class="thumb-img" src="https://bnetcmsus-a.akamaihd.net/cms/blog_thumbnail/pk/PKMIJP08LSS81773436185736.png" alt="">
+          </div>
+          <div class="compact-text">
+            <div class="news-card-meta" style="margin-bottom:0;">
+              <span class="source-badge blizzard">Blizzard</span>
+              <span class="category-badge">Promo</span>
+              <span class="time-ago" style="margin-left:auto;">4d</span>
+            </div>
+            <div class="compact-title">Play Midnight for a Classic Anniversary Edition Flying Mount</div>
+            <div class="compact-snippet">Earn an exclusive mount by logging into Midnight</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-header">YESTERDAY</div>
+      <div class="news-feed">
+        <!-- Compact: fallback (no thumbnail from MMO-C) -->
+        <div class="news-card-compact">
+          <div class="compact-thumb">
+            <div class="img-fallback mmo-tint" style="font-size:24px;">
+              <span class="fallback-icon">&#x1F50D;</span>
+              <span class="source-mark">MMO</span>
+            </div>
+          </div>
+          <div class="compact-text">
+            <div class="news-card-meta" style="margin-bottom:0;">
+              <span class="source-badge mmochamp">MMO-C</span>
+              <span class="category-badge">Datamining</span>
+              <span class="time-ago" style="margin-left:auto;">1d</span>
+            </div>
+            <div class="compact-title">Datamined: Midnight Build 57321 — New Tier Set Models and Unused Assets</div>
+            <div class="compact-snippet">Unreleased armor models found in latest build</div>
+          </div>
+        </div>
+
+        <!-- Compact: real thumbnail -->
+        <div class="news-card-compact">
+          <div class="compact-thumb">
+            <img class="thumb-img" src="https://bnetcmsus-a.akamaihd.net/cms/blog_thumbnail/25/25HN1IQG3OV81773246304607.png" alt="">
+          </div>
+          <div class="compact-text">
+            <div class="news-card-meta" style="margin-bottom:0;">
+              <span class="source-badge blizzard">Blizzard</span>
+              <span class="category-badge">Classic</span>
+              <span class="time-ago" style="margin-left:auto;">1d</span>
+            </div>
+            <div class="compact-title">Mists of Pandaria Classic: Escalation Arrives March 31</div>
+            <div class="compact-snippet">Thunder King raid and new Isle content</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reddit Community Section -->
+      <div class="section-divider">
+        <span class="divider-label">r/wow Community</span>
+      </div>
+
+      <div class="news-feed">
+        <div class="reddit-card">
+          <div class="reddit-title">After 3 years of casual play, I finally got my first Keystone Master. Here's what I learned.</div>
+          <div class="reddit-meta">
+            <span class="reddit-stat upvotes"><span class="stat-icon">&#x25B2;</span> 2.4k</span>
+            <span class="reddit-stat"><span class="stat-icon">&#x1F4AC;</span> 347</span>
+            <span class="time-ago">6h ago</span>
+            <span class="reddit-flair">Achievement</span>
+          </div>
+        </div>
+
+        <div class="reddit-card">
+          <div class="reddit-title">Blizzard just shadow-nerfed the best farming spot in Hallowfall</div>
+          <div class="reddit-meta">
+            <span class="reddit-stat upvotes"><span class="stat-icon">&#x25B2;</span> 1.8k</span>
+            <span class="reddit-stat"><span class="stat-icon">&#x1F4AC;</span> 512</span>
+            <span class="time-ago">9h ago</span>
+            <span class="reddit-flair">Discussion</span>
+          </div>
+        </div>
+
+        <div class="reddit-card">
+          <div class="reddit-title">The new arachnid mount customization is actually incredible — here are all the color variants</div>
+          <div class="reddit-meta">
+            <span class="reddit-stat upvotes"><span class="stat-icon">&#x25B2;</span> 3.1k</span>
+            <span class="reddit-stat"><span class="stat-icon">&#x1F4AC;</span> 203</span>
+            <span class="time-ago">11h ago</span>
+            <span class="reddit-flair">Media</span>
+          </div>
+        </div>
+
+        <div style="height: 40px;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="screen-label">News Screen (toolbar filters)</div>
+</div>
+
+<!-- ==================== SCREEN 3: FILTER SHEET OPEN ==================== -->
+<div>
+  <div class="phone-frame">
+    <div class="screen" style="overflow:hidden;">
+      <!-- Dimmed background content -->
+      <div style="opacity: 0.3; pointer-events: none;">
+        <div class="news-screen-top-bar">
+          <div class="back-btn">&#x2190;</div>
+          <div class="top-bar-title">NEWS</div>
+        </div>
+        <div class="search-bar">
+          <span class="search-icon">&#x1F50E;</span>
+          <input type="text" placeholder="Search news..." disabled>
+        </div>
+        <div class="toolbar-row">
+          <div class="toolbar-left">
+            <div class="toolbar-btn"><span class="btn-icon">&#x21C5;</span><span class="btn-label">Latest</span></div>
+            <div class="toolbar-btn active"><span class="btn-icon">&#x2630;</span><span class="btn-label">Filters</span><span class="filter-count">3</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter bottom sheet -->
+      <div class="sheet-overlay">
+        <div class="filter-sheet">
+          <div class="sheet-handle"></div>
+          <div class="sheet-header">
+            <span class="sheet-title">Filters</span>
+            <span class="sheet-active-badge">3 active</span>
+            <span class="sheet-reset">Reset</span>
+          </div>
+
+          <div class="sheet-body">
+            <!-- SOURCE section -->
+            <div class="filter-section-header">SOURCE</div>
+            <div class="filter-tags-wrap">
+              <div class="filter-tag selected blizzard-tag">
+                <span class="tag-dot" style="background: var(--blizzard);"></span>
+                Blizzard
+              </div>
+              <div class="filter-tag selected wowhead-tag">
+                <span class="tag-dot" style="background: var(--wowhead);"></span>
+                Wowhead
+              </div>
+              <div class="filter-tag">
+                <span class="tag-dot" style="background: var(--mmochamp);"></span>
+                MMO-Champion
+              </div>
+              <div class="filter-tag">
+                <span class="tag-dot" style="background: var(--icyveins);"></span>
+                Icy Veins
+              </div>
+            </div>
+
+            <!-- CONTENT TYPE section -->
+            <div class="filter-section-header">CONTENT TYPE</div>
+            <div class="filter-tags-wrap">
+              <div class="filter-tag selected accent">Patch Notes</div>
+              <div class="filter-tag">Hotfixes</div>
+              <div class="filter-tag">Guides</div>
+              <div class="filter-tag">Datamining</div>
+              <div class="filter-tag">Blue Posts</div>
+              <div class="filter-tag">Community</div>
+            </div>
+
+            <!-- REDDIT section -->
+            <div class="filter-section-header">REDDIT</div>
+            <div class="filter-tags-wrap">
+              <div class="filter-tag">Show r/wow posts</div>
+            </div>
+          </div>
+
+          <!-- Apply button -->
+          <div class="sheet-footer">
+            <button class="apply-btn">Apply 3 Filters</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="screen-label">Filter Bottom Sheet</div>
+</div>
+
+<!-- ==================== SCREEN 4: ARTICLE DETAIL ==================== -->
+<div>
+  <div class="phone-frame">
+    <div class="screen">
+      <div class="article-top-bar">
+        <div class="back-btn">&#x2190;</div>
+        <div class="article-top-actions">
+          <div class="action-btn" title="Share">&#x21AA;</div>
+          <div class="action-btn" title="Bookmark">&#x2606;</div>
+        </div>
+      </div>
+
+      <div class="article-content">
+        <div class="article-source-row">
+          <span class="source-badge blizzard">Blizzard</span>
+          <span class="category-badge">Launch</span>
+          <span class="article-date">March 17, 2026</span>
+        </div>
+
+        <h1 class="article-title">Midnight Season 1 Has Begun!</h1>
+
+        <div class="article-author">By Blizzard Entertainment</div>
+
+        <div class="article-hero-image">
+          <img class="thumb-img" src="https://bnetcmsus-a.akamaihd.net/cms/blog_thumbnail/vn/VNVI1LDE8NP51772694004728.png" alt="">
+        </div>
+
+        <div class="article-body">
+          <p>The next chapter of World of Warcraft has arrived. <strong>Midnight Season 1</strong> brings an all-new raid, eight Mythic+ dungeons, and a wealth of new content to explore.</p>
+
+          <h3>New Raid: The Scarlet Spire</h3>
+          <p>Face eight new bosses in the <strong>Scarlet Spire</strong>, the flagship raid of Midnight Season 1. Available in Normal, Heroic, and Mythic difficulties, with the <span class="item-link">Duskweaver's Regalia</span> tier set dropping from the final four bosses.</p>
+
+          <blockquote>
+            "Midnight Season 1 represents our most ambitious season launch yet — we can't wait for players to experience it." — Executive Producer
+          </blockquote>
+
+          <h3>Mythic+ Season 1 Dungeons</h3>
+          <p>Eight dungeons enter the Mythic+ rotation, including four new Midnight dungeons and four returning favorites:</p>
+          <ul>
+            <li><strong>New:</strong> Duskhaven Depths, Twilight Bastion, Silvergrove Sanctum, The Crimson Hollow</li>
+            <li><strong>Returning:</strong> Mists of Tirna Scithe, Halls of Atonement, Brackenhide Hollow, Uldaman</li>
+          </ul>
+
+          <h3>Class Tuning</h3>
+          <ul>
+            <li><strong>Retribution Paladin:</strong> <span class="spell-link">Final Verdict</span> damage reduced by 8%. <span class="spell-link">Divine Storm</span> increased by 5%.</li>
+            <li><strong>Frost Mage:</strong> <span class="spell-link">Glacial Spike</span> damage increased by 12%.</li>
+            <li><strong>Affliction Warlock:</strong> <span class="spell-link">Agony</span> reduced by 6%. <span class="spell-link">Drain Soul</span> increased by 10%.</li>
+          </ul>
+
+          <p>Full patch notes are available on the official <strong>World of Warcraft</strong> website. Midnight Season 1 is live on all realms now.</p>
+        </div>
+      </div>
+
+      <div class="open-browser-fab">
+        <span class="fab-icon">&#x2197;</span>
+        Open in Browser
+      </div>
+    </div>
+  </div>
+  <div class="screen-label">Article Reader View</div>
+</div>
+
+</body>
+</html>

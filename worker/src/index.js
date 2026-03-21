@@ -50,6 +50,10 @@ export default {
       return handleWagoProxy(request, env);
     }
 
+    if (url.pathname.startsWith('/news/') && request.method === 'GET') {
+      return handleNews(request, env);
+    }
+
     // Health check
     if (url.pathname === '/' && request.method === 'GET') {
       return json({ status: 'ok', service: 'wow-companion-auth' });
@@ -295,6 +299,568 @@ async function handleWagoProxy(request, env) {
   } catch (e) {
     return json({ error: 'Wago proxy error' }, 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// News aggregation endpoints
+// ---------------------------------------------------------------------------
+
+const NEWS_CACHE_TTL = 1800; // 30 minutes
+const ARTICLE_CACHE_TTL = 86400; // 24 hours
+
+async function handleNews(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname.replace('/news/', '');
+
+  try {
+    switch (path) {
+      case 'blizzard':
+        return await fetchBlizzardNews(env);
+      case 'wowhead':
+        return await fetchWowheadNews(env);
+      case 'mmochampion':
+        return await fetchMMOChampionNews(env);
+      case 'icyveins':
+        return await fetchIcyVeinsNews(env);
+      case 'reddit':
+        return await fetchRedditPosts(env);
+      case 'article':
+        return await fetchArticleContent(url, env);
+      default:
+        return json({ error: `Unknown news source: ${path}` }, 404);
+    }
+  } catch (e) {
+    return json({ error: `News fetch failed: ${e.message}` }, 500);
+  }
+}
+
+// --- Blizzard News ---
+async function fetchBlizzardNews(env) {
+  const cacheKey = 'news_blizzard';
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
+  const response = await fetch('https://worldofwarcraft.blizzard.com/en-us/news', {
+    headers: { 'User-Agent': 'WoWCompanion/1.0' },
+  });
+
+  if (!response.ok) {
+    return json({ error: `Blizzard returned ${response.status}` }, 502);
+  }
+
+  const html = await response.text();
+  const articles = parseBlizzardNews(html);
+  const result = JSON.stringify(articles);
+
+  await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+
+  return new Response(result, {
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+function parseBlizzardNews(html) {
+  const articles = [];
+
+  // The Blizzard news page embeds data in a JS variable: model = { ... }
+  // It contains masthead.features[] and blogList.blogs[]
+  const modelMatch = html.match(/model\s*=\s*(\{[\s\S]*?\});\s*(?:var|const|let|<\/script>)/);
+  if (modelMatch) {
+    try {
+      const model = JSON.parse(modelMatch[1]);
+
+      // Collect articles from both masthead features and blogList
+      const allBlogs = [];
+      if (model.masthead?.features) allBlogs.push(...model.masthead.features);
+      if (model.blogList?.blogs) allBlogs.push(...model.blogList.blogs);
+
+      for (const item of allBlogs) {
+        const title = item.blog_title || item.title || '';
+        if (!title) continue;
+
+        const slug = item.default_url || item.article_url || '';
+        let imageUrl = null;
+        if (item.header?.url) {
+          imageUrl = item.header.url;
+        } else if (item.thumbnail?.url) {
+          imageUrl = item.thumbnail.url;
+        }
+        // Fix protocol-relative URLs
+        if (imageUrl && imageUrl.startsWith('//')) {
+          imageUrl = `https:${imageUrl}`;
+        }
+
+        articles.push({
+          id: `blizzard_${item.id || articles.length}`,
+          title,
+          source: 'blizzard',
+          category: item.community || 'News',
+          imageUrl,
+          summary: item.summary || item.description || '',
+          content: '',
+          author: 'Blizzard Entertainment',
+          publishedAt: item.created_at || item.updated_at || new Date().toISOString(),
+          url: slug.startsWith('http') ? slug : `https://worldofwarcraft.blizzard.com${slug}`,
+        });
+      }
+      if (articles.length > 0) return articles;
+    } catch (_) {}
+  }
+
+  // Fallback: extract from any /en-us/news/ links with surrounding text
+  const linkRegex = /href="(\/en-us\/news\/[^"]+)"[^>]*>[^<]*<[^>]*>([^<]+)/gi;
+  let match;
+  const seen = new Set();
+  while ((match = linkRegex.exec(html)) !== null) {
+    const href = match[1];
+    const title = match[2].trim();
+    if (title && title.length > 10 && !seen.has(href)) {
+      seen.add(href);
+      // Try to find nearby image
+      const region = html.substring(Math.max(0, match.index - 1000), match.index + 500);
+      const imgMatch = region.match(/src="((?:https?:)?\/\/[^"]*(?:bnetcmsus|blz-contentstack|blog_thumbnail)[^"]*)"/i);
+      let imageUrl = imgMatch ? imgMatch[1] : null;
+      if (imageUrl && imageUrl.startsWith('//')) imageUrl = `https:${imageUrl}`;
+
+      articles.push({
+        id: `blizzard_${articles.length}`,
+        title,
+        source: 'blizzard',
+        category: 'News',
+        imageUrl,
+        summary: '',
+        content: '',
+        author: 'Blizzard Entertainment',
+        publishedAt: new Date().toISOString(),
+        url: `https://worldofwarcraft.blizzard.com${href}`,
+      });
+    }
+  }
+
+  return articles;
+}
+
+// --- Wowhead News ---
+async function fetchWowheadNews(env) {
+  const cacheKey = 'news_wowhead';
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
+  // Wowhead has an RSS feed that's more reliable than scraping HTML
+  const response = await fetch('https://www.wowhead.com/news/rss/all', {
+    headers: { 'User-Agent': 'WoWCompanion/1.0' },
+  });
+
+  if (!response.ok) {
+    // Fallback: try the main news page
+    return await fetchWowheadNewsFallback(env);
+  }
+
+  const xml = await response.text();
+  const articles = parseRSS(xml, 'wowhead', 'https://www.wowhead.com');
+  const result = JSON.stringify(articles);
+
+  await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+
+  return new Response(result, {
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+async function fetchWowheadNewsFallback(env) {
+  const response = await fetch('https://www.wowhead.com/news', {
+    headers: { 'User-Agent': 'WoWCompanion/1.0' },
+  });
+
+  if (!response.ok) {
+    return json({ error: `Wowhead returned ${response.status}` }, 502);
+  }
+
+  const html = await response.text();
+  const articles = [];
+
+  // Wowhead news articles follow a pattern with data attributes
+  const articleRegex = /class="[^"]*news-list[^"]*"[\s\S]*?<a[^>]*href="(\/news\/[^"]+)"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>/gi;
+  let match;
+  while ((match = articleRegex.exec(html)) !== null) {
+    const href = match[1];
+    const title = match[2].replace(/<[^>]+>/g, '').trim();
+    if (title) {
+      articles.push({
+        id: `wowhead_${href.replace(/\//g, '_')}`,
+        title,
+        source: 'wowhead',
+        category: 'News',
+        imageUrl: null,
+        summary: '',
+        content: '',
+        author: null,
+        publishedAt: new Date().toISOString(),
+        url: `https://www.wowhead.com${href}`,
+      });
+    }
+  }
+
+  const result = JSON.stringify(articles);
+  await env.CACHE.put('news_wowhead', result, { expirationTtl: NEWS_CACHE_TTL });
+
+  return new Response(result, {
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+// --- MMO-Champion News ---
+async function fetchMMOChampionNews(env) {
+  const cacheKey = 'news_mmochampion';
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
+  // Try RSS feed first
+  const rssResponse = await fetch('https://www.mmo-champion.com/external.php?type=RSS2', {
+    headers: { 'User-Agent': 'WoWCompanion/1.0' },
+  });
+
+  let articles = [];
+
+  if (rssResponse.ok) {
+    const xml = await rssResponse.text();
+    articles = parseRSS(xml, 'mmochampion', 'https://www.mmo-champion.com');
+  } else {
+    // Fallback: scrape main page
+    const response = await fetch('https://www.mmo-champion.com', {
+      headers: { 'User-Agent': 'WoWCompanion/1.0' },
+    });
+
+    if (!response.ok) {
+      return json({ error: `MMO-Champion returned ${response.status}` }, 502);
+    }
+
+    const html = await response.text();
+
+    // MMO-Champion uses a standard blog layout
+    const postRegex = /<h2[^>]*>\s*<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>\s*<\/h2>/gi;
+    let match;
+    while ((match = postRegex.exec(html)) !== null) {
+      const href = match[1];
+      const title = match[2].replace(/<[^>]+>/g, '').trim();
+      if (title) {
+        articles.push({
+          id: `mmochampion_${articles.length}`,
+          title,
+          source: 'mmochampion',
+          category: detectCategory(title),
+          imageUrl: null,
+          summary: '',
+          content: '',
+          author: null,
+          publishedAt: new Date().toISOString(),
+          url: href.startsWith('http') ? href : `https://www.mmo-champion.com${href}`,
+        });
+      }
+    }
+  }
+
+  const result = JSON.stringify(articles);
+  await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+
+  return new Response(result, {
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+// --- Icy Veins News ---
+async function fetchIcyVeinsNews(env) {
+  const cacheKey = 'news_icyveins';
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
+  // IcyVeins RSS — resolve the origin IP directly to bypass Cloudflare bot protection.
+  // wp-prod.icy-veins.com is behind CF, but we can try fetching with cf.resolveOverride
+  // or by going through a third-party RSS proxy as fallback.
+  let articles = [];
+
+  // Strategy 1: Direct fetch (may be blocked by CF bot protection)
+  try {
+    const response = await fetch('https://wp-prod.icy-veins.com/custom-rss/?category=wow', {
+      cf: { cacheTtl: 1800, cacheEverything: true },
+    });
+    if (response.ok) {
+      const text = await response.text();
+      if (text.includes('<item>')) {
+        articles = parseRSS(text, 'icyveins', 'https://www.icy-veins.com');
+      }
+    }
+  } catch (_) {}
+
+  // Strategy 2: Use feed2json.org as a proxy (not on Cloudflare, bypasses bot protection)
+  if (articles.length === 0) {
+    try {
+      const proxyUrl = 'https://feed2json.org/convert?url=' +
+        encodeURIComponent('https://wp-prod.icy-veins.com/custom-rss/?category=wow');
+      const response = await fetch(proxyUrl, {
+        headers: { 'Accept': 'application/json' },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.items && data.items.length > 0) {
+          for (const item of data.items) {
+            // feed2json uses "image" field or we extract from content_html
+            let imageUrl = item.image || null;
+            if (!imageUrl && item.content_html) {
+              const imgMatch = item.content_html.match(/<img[^>]*src="([^"]*)"[^>]*>/i);
+              if (imgMatch) imageUrl = imgMatch[1];
+            }
+
+            articles.push({
+              id: `icyveins_${articles.length}`,
+              title: item.title || '',
+              source: 'icyveins',
+              category: detectCategory(item.title || ''),
+              imageUrl: imageUrl || null,
+              summary: (item.content_text || item.summary || '').substring(0, 300),
+              content: '',
+              author: item.author?.name || null,
+              publishedAt: item.date_published
+                ? new Date(item.date_published).toISOString()
+                : new Date().toISOString(),
+              url: item.url || item.id || '',
+            });
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Only cache non-empty results so we retry on next request
+  if (articles.length > 0) {
+    const result = JSON.stringify(articles);
+    await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+    return new Response(result, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
+  return json([]);
+}
+
+// --- Reddit r/wow ---
+async function fetchRedditPosts(env) {
+  const cacheKey = 'news_reddit';
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
+  const response = await fetch('https://www.reddit.com/r/wow/hot.json?limit=20', {
+    headers: { 'User-Agent': 'WoWCompanion/1.0 (by /u/wowcompanion)' },
+  });
+
+  if (!response.ok) {
+    return json({ error: `Reddit returned ${response.status}` }, 502);
+  }
+
+  const data = await response.json();
+  const posts = (data?.data?.children || [])
+    .filter(child => !child.data.stickied) // Skip pinned posts
+    .map(child => {
+      const post = child.data;
+      return {
+        id: `reddit_${post.id}`,
+        title: post.title,
+        source: 'reddit',
+        category: post.link_flair_text || 'Discussion',
+        imageUrl: (post.thumbnail && post.thumbnail !== 'self' && post.thumbnail !== 'default' && post.thumbnail !== 'nsfw')
+          ? post.thumbnail : null,
+        summary: post.selftext ? post.selftext.substring(0, 200) : '',
+        content: post.selftext || '',
+        author: post.author,
+        publishedAt: new Date(post.created_utc * 1000).toISOString(),
+        url: `https://reddit.com${post.permalink}`,
+        score: post.score,
+        numComments: post.num_comments,
+        flair: post.link_flair_text || null,
+      };
+    });
+
+  const result = JSON.stringify(posts);
+  await env.CACHE.put(cacheKey, result, { expirationTtl: NEWS_CACHE_TTL });
+
+  return new Response(result, {
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+// --- Article content extraction ---
+async function fetchArticleContent(url, env) {
+  const articleUrl = url.searchParams.get('url');
+  if (!articleUrl) {
+    return json({ error: 'Missing url parameter' }, 400);
+  }
+
+  // Validate URL is from allowed domains
+  const allowed = ['worldofwarcraft.blizzard.com', 'www.wowhead.com', 'www.mmo-champion.com', 'www.icy-veins.com', 'icy-veins.com'];
+  const parsedUrl = new URL(articleUrl);
+  if (!allowed.includes(parsedUrl.hostname)) {
+    return json({ error: 'Domain not allowed' }, 403);
+  }
+
+  const cacheKey = `article_${btoa(articleUrl).substring(0, 100)}`;
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
+  const response = await fetch(articleUrl, {
+    headers: { 'User-Agent': 'WoWCompanion/1.0' },
+  });
+
+  if (!response.ok) {
+    return json({ error: `Article fetch returned ${response.status}` }, 502);
+  }
+
+  const html = await response.text();
+  const article = extractArticleContent(html, parsedUrl.hostname);
+
+  const result = JSON.stringify(article);
+  await env.CACHE.put(cacheKey, result, { expirationTtl: ARTICLE_CACHE_TTL });
+
+  return new Response(result, {
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+function extractArticleContent(html, hostname) {
+  // Remove script and style tags
+  let cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '');
+
+  // Extract og:image for hero image
+  const ogImageMatch = cleaned.match(/<meta[^>]*property="og:image"[^>]*content="([^"]*)"[^>]*>/i);
+  const imageUrl = ogImageMatch ? ogImageMatch[1] : null;
+
+  // Extract og:description for summary
+  const ogDescMatch = cleaned.match(/<meta[^>]*property="og:description"[^>]*content="([^"]*)"[^>]*>/i);
+  const summary = ogDescMatch ? ogDescMatch[1] : '';
+
+  // Extract article body based on source
+  let content = '';
+  let author = null;
+
+  if (hostname.includes('blizzard')) {
+    const bodyMatch = cleaned.match(/class="[^"]*Blog-content[^"]*">([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/i);
+    content = bodyMatch ? bodyMatch[1] : '';
+    author = 'Blizzard Entertainment';
+  } else if (hostname.includes('wowhead')) {
+    const bodyMatch = cleaned.match(/class="[^"]*news-post-body[^"]*">([\s\S]*?)<\/div>\s*(?:<div class="(?:comment|related))/i);
+    content = bodyMatch ? bodyMatch[1] : '';
+    const authorMatch = cleaned.match(/class="[^"]*news-post-author[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
+    author = authorMatch ? authorMatch[1].replace(/<[^>]+>/g, '').trim() : null;
+  } else if (hostname.includes('mmo-champion')) {
+    const bodyMatch = cleaned.match(/class="[^"]*content[^"]*">([\s\S]*?)<\/div>\s*<div class="(?:post-footer|comment)/i);
+    content = bodyMatch ? bodyMatch[1] : '';
+  } else if (hostname.includes('icy-veins')) {
+    const bodyMatch = cleaned.match(/class="[^"]*news_body[^"]*">([\s\S]*?)<\/div>\s*<div class="(?:comment|related)/i);
+    content = bodyMatch ? bodyMatch[1] : '';
+  }
+
+  // Clean up the content HTML
+  content = content
+    .replace(/<(?:nav|header|footer|aside|script|style|iframe|noscript)[\s\S]*?<\/\1>/gi, '')
+    .replace(/class="[^"]*"/g, '')
+    .replace(/style="[^"]*"/g, '')
+    .replace(/id="[^"]*"/g, '')
+    .replace(/data-[a-z-]+="[^"]*"/g, '')
+    .trim();
+
+  return { content, imageUrl, summary, author };
+}
+
+// --- Shared RSS parser ---
+function parseRSS(xml, source, baseUrl) {
+  const articles = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+  let match;
+
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const item = match[1];
+    const title = extractTag(item, 'title');
+    const link = extractTag(item, 'link') || extractTag(item, 'guid');
+    const description = extractTag(item, 'description');
+    const pubDate = extractTag(item, 'pubDate');
+    const creator = extractTag(item, 'dc:creator') || extractTag(item, 'author');
+    const category = extractTag(item, 'category');
+
+    // Try to extract image from various RSS image patterns
+    const mediaMatch = item.match(/<media:content[^>]*url="([^"]*)"[^>]*>/i)
+      || item.match(/<media:thumbnail[^>]*url="([^"]*)"[^>]*>/i)
+      || item.match(/<enclosure[^>]*url="([^"]*)"[^>]*type="image/i)
+      || item.match(/<featured-image>([\s\S]*?)<\/featured-image>/i)
+      || (description && description.match(/<img[^>]*src="([^"]*)"[^>]*>/i));
+    const imageUrl = mediaMatch ? mediaMatch[1].trim() : null;
+
+    // Clean description of HTML
+    const summary = description
+      ? description.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, '').trim().substring(0, 300)
+      : '';
+
+    if (title && link) {
+      articles.push({
+        id: `${source}_${articles.length}`,
+        title: title.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim(),
+        source,
+        category: category ? category.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim() : detectCategory(title),
+        imageUrl,
+        summary,
+        content: '',
+        author: creator ? creator.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim() : null,
+        publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+        url: link.startsWith('http') ? link : `${baseUrl}${link}`,
+      });
+    }
+  }
+
+  return articles;
+}
+
+function extractTag(xml, tagName) {
+  const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i');
+  const match = xml.match(regex);
+  return match ? match[1].trim() : null;
+}
+
+function detectCategory(title) {
+  const lower = title.toLowerCase();
+  if (lower.includes('hotfix')) return 'Hotfix';
+  if (lower.includes('patch notes') || lower.includes('patch ')) return 'Patch Notes';
+  if (lower.includes('blue post') || lower.includes('blue tracker')) return 'Blue Post';
+  if (lower.includes('guide')) return 'Guide';
+  if (lower.includes('datamin')) return 'Datamining';
+  if (lower.includes('maintenance') || lower.includes('downtime')) return 'Maintenance';
+  if (lower.includes('pvp') || lower.includes('arena')) return 'PvP';
+  if (lower.includes('raid') || lower.includes('mythic')) return 'Raid & Dungeons';
+  return 'News';
 }
 
 // ---------------------------------------------------------------------------

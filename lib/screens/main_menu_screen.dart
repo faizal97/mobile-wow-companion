@@ -12,14 +12,18 @@ import '../models/battlenet_region.dart';
 import '../theme/app_theme.dart';
 import '../services/auction_house_provider.dart';
 import '../services/mount_provider.dart';
+import '../services/news_provider.dart';
 import '../services/update_service.dart';
 import '../services/wow_token_provider.dart';
+import '../widgets/news_preview_card.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/wow_token_card.dart';
 import 'achievement_category_screen.dart';
+import 'article_detail_screen.dart';
 import 'auction_house_screen.dart';
 import 'character_list_screen.dart';
 import 'mount_journal_screen.dart';
+import 'news_screen.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -39,6 +43,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForUpdate();
       context.read<WowTokenProvider>().fetchTokenPrice();
+      context.read<NewsProvider>().fetchNews();
+      context.read<RedditProvider>().fetchPosts();
     });
   }
 
@@ -122,6 +128,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           ),
                           const SizedBox(height: 40),
                           const WowTokenCard(),
+                          const SizedBox(height: 16),
+                          NewsPreviewCard(
+                            onSeeAll: () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const NewsScreen()),
+                            ),
+                            onArticleTap: (article) => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => ArticleDetailScreen(article: article)),
+                            ),
+                          ),
                           const SizedBox(height: 16),
                           _MenuCard(
                             icon: Icons.store_rounded,
