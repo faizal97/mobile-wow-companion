@@ -46,6 +46,10 @@ export default {
       return handleCommoditiesPrices(request, env);
     }
 
+    if (url.pathname.startsWith('/wago/') && request.method === 'GET') {
+      return handleWagoProxy(request, env);
+    }
+
     // Health check
     if (url.pathname === '/' && request.method === 'GET') {
       return json({ status: 'ok', service: 'wow-companion-auth' });
@@ -237,6 +241,60 @@ async function getCommoditiesIndex(region, env) {
   await env.CACHE.put(cacheKey, JSON.stringify(cached_data), { expirationTtl: 3600 });
 
   return cached_data;
+}
+
+// ---------------------------------------------------------------------------
+// Wago DB2 proxy (CORS bypass + KV caching)
+// ---------------------------------------------------------------------------
+
+// Allowed Wago DB2 tables (whitelist to prevent abuse)
+const ALLOWED_WAGO_TABLES = new Set([
+  'Mount', 'MountXDisplay', 'PlayerCondition', 'CurrencyTypes',
+  'JournalEncounter', 'JournalEncounterItem', 'JournalInstance',
+]);
+
+async function handleWagoProxy(request, env) {
+  try {
+    const url = new URL(request.url);
+    // Path: /wago/Mount/csv → table = Mount
+    const parts = url.pathname.replace('/wago/', '').split('/');
+    const table = parts[0];
+
+    if (!ALLOWED_WAGO_TABLES.has(table)) {
+      return json({ error: `Table not allowed: ${table}` }, 403);
+    }
+
+    const cacheKey = `wago_${table}`;
+
+    // Check KV cache (24h TTL)
+    const cached = await env.CACHE.get(cacheKey);
+    if (cached) {
+      return new Response(cached, {
+        status: 200,
+        headers: { 'Content-Type': 'text/csv', ...CORS_HEADERS },
+      });
+    }
+
+    // Fetch from Wago
+    const wagoUrl = `https://wago.tools/db2/${table}/csv`;
+    const response = await fetch(wagoUrl);
+
+    if (!response.ok) {
+      return json({ error: `Wago returned ${response.status}` }, 502);
+    }
+
+    const body = await response.text();
+
+    // Cache in KV for 24 hours
+    await env.CACHE.put(cacheKey, body, { expirationTtl: 86400 });
+
+    return new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/csv', ...CORS_HEADERS },
+    });
+  } catch (e) {
+    return json({ error: 'Wago proxy error' }, 500);
+  }
 }
 
 // ---------------------------------------------------------------------------

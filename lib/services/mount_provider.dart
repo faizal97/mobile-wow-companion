@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config.dart';
 import '../models/mount.dart';
 import 'battlenet_api_service.dart';
 
@@ -32,11 +33,14 @@ class MountProvider extends ChangeNotifier {
   // Data URLs
   static const _simpleArmoryUrl =
       'https://raw.githubusercontent.com/kevinclement/SimpleArmory/master/static/data/mounts.json';
-  static const _wagoUrl = 'https://wago.tools/db2/Mount/csv';
-  static const _currencyUrl = 'https://wago.tools/db2/CurrencyTypes/csv';
-  static const _journalEncounterUrl = 'https://wago.tools/db2/JournalEncounter/csv';
-  static const _journalEncounterItemUrl = 'https://wago.tools/db2/JournalEncounterItem/csv';
-  static const _journalInstanceUrl = 'https://wago.tools/db2/JournalInstance/csv';
+
+  // Wago URLs proxied through Cloudflare Worker (CORS bypass)
+  static String get _proxyBase => AppConfig.authProxyUrl;
+  static String get _wagoUrl => '$_proxyBase/wago/Mount/csv';
+  static String get _currencyUrl => '$_proxyBase/wago/CurrencyTypes/csv';
+  static String get _journalEncounterUrl => '$_proxyBase/wago/JournalEncounter/csv';
+  static String get _journalEncounterItemUrl => '$_proxyBase/wago/JournalEncounterItem/csv';
+  static String get _journalInstanceUrl => '$_proxyBase/wago/JournalInstance/csv';
 
   // State
   List<Mount> _mounts = [];
@@ -693,8 +697,8 @@ class MountProvider extends ChangeNotifier {
 
   // ─── Creature displays (Wago MountXDisplay CSV) ──────────────────────────
 
-  static const _mountXDisplayUrl = 'https://wago.tools/db2/MountXDisplay/csv';
-  static const _playerConditionUrl = 'https://wago.tools/db2/PlayerCondition/csv';
+  static String get _mountXDisplayUrl => '$_proxyBase/wago/MountXDisplay/csv';
+  static String get _playerConditionUrl => '$_proxyBase/wago/PlayerCondition/csv';
 
   /// Loads creature display IDs from Wago MountXDisplay CSV (single download).
   /// Replaces 16 paginated Blizzard search API calls.
