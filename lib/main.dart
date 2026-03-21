@@ -20,6 +20,7 @@ import 'screens/login_screen.dart';
 import 'screens/main_menu_screen.dart';
 import 'screens/region_picker_screen.dart';
 import 'services/achievement_provider.dart';
+import 'services/mount_provider.dart';
 import 'services/wow_token_provider.dart';
 import 'theme/app_theme.dart';
 
@@ -56,6 +57,9 @@ void main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => AchievementProvider(apiService, cacheService),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => MountProvider(apiService, prefs),
         ),
         ChangeNotifierProvider(
           create: (context) => WowTokenProvider(

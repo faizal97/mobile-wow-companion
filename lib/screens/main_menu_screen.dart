@@ -11,6 +11,7 @@ import '../services/region_service.dart';
 import '../models/battlenet_region.dart';
 import '../theme/app_theme.dart';
 import '../services/auction_house_provider.dart';
+import '../services/mount_provider.dart';
 import '../services/update_service.dart';
 import '../services/wow_token_provider.dart';
 import '../widgets/update_dialog.dart';
@@ -18,6 +19,7 @@ import '../widgets/wow_token_card.dart';
 import 'achievement_category_screen.dart';
 import 'auction_house_screen.dart';
 import 'character_list_screen.dart';
+import 'mount_journal_screen.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -149,6 +151,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
+                          _MenuCard(
+                            icon: Icons.pets_rounded,
+                            title: 'Mounts',
+                            subtitle: 'Browse your collection',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const MountJournalScreen()),
+                            ),
+                            iconColor: const Color(0xFFA335EE),
+                          ),
+                          const SizedBox(height: 16),
                           Builder(
                             builder: (context) {
                               final regionService = context.read<RegionService>();
@@ -251,6 +263,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                                   tokenProvider.clearToken();
                                   final ahProvider = context.read<AuctionHouseProvider>();
                                   ahProvider.clear();
+                                  context.read<MountProvider>().clearAll();
                                   await regionSvc.clearAll();
                                   apiSvc.setRegion(BattleNetRegion.us);
                                   if (context.mounted) {
@@ -452,6 +465,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     final achievementProvider = context.read<AchievementProvider>();
     final tokenProvider = context.read<WowTokenProvider>();
     final ahProvider = context.read<AuctionHouseProvider>();
+    final mountProvider = context.read<MountProvider>();
 
     await regionService.setActiveRegion(region);
     apiService.setRegion(region);
@@ -459,10 +473,11 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     // TLA+ FIX #2: Bump load generation BEFORE forceRefresh
     provider.bumpLoadGeneration();
 
-    // Clear achievement progress, token cache, and AH data (per-region data)
+    // Clear achievement progress, token cache, AH data, and mount collection (per-region data)
     achievementProvider.clearProgress();
     tokenProvider.clearToken();
     ahProvider.clear();
+    mountProvider.clearCollection();
 
     // Clear cached data and reload for new region
     provider.forceRefresh();

@@ -8,6 +8,7 @@ import '../models/raid_progression.dart';
 import '../models/battlenet_region.dart';
 import '../models/auction_item.dart';
 import '../models/wow_token.dart';
+import '../models/mount.dart';
 import 'battlenet_auth_service.dart';
 
 /// Fetches WoW character data from the Battle.net API.
@@ -831,6 +832,128 @@ class BattleNetApiService {
             return asset['value'] as String?;
           }
         }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ─── Mount endpoints ────────────────────────────────────────────────────
+
+  /// Fetches the account-level mount collection.
+  /// Returns a map of mount ID → {isCollected, isFavorite}.
+  Future<Map<int, ({bool isCollected, bool isFavorite})>?> getAccountMountCollection() async {
+    final token = await _authService.getAccessToken();
+    if (token == null) return null;
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+            '$_apiBase/profile/user/wow/collections/mounts'
+            '?namespace=$_namespace&locale=$_locale'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final mounts = data['mounts'] as List? ?? [];
+        final result = <int, ({bool isCollected, bool isFavorite})>{};
+
+        for (final entry in mounts) {
+          final mount = entry['mount'] as Map<String, dynamic>?;
+          if (mount == null) continue;
+          final id = mount['id'] as int?;
+          if (id == null) continue;
+          result[id] = (
+            isCollected: true,
+            isFavorite: entry['is_favorite'] == true,
+          );
+        }
+        return result;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Fetches creature display IDs for all mounts via paginated search.
+  /// Returns a map of mount ID → creature display ID.
+  Future<Map<int, int>?> getMountCreatureDisplays() async {
+    final token = await _authService.getAccessToken();
+    if (token == null) return null;
+
+    try {
+      final result = <int, int>{};
+      int page = 1;
+      int pageCount = 1;
+
+      while (page <= pageCount) {
+        final response = await http.get(
+          Uri.parse(
+              '$_apiBase/data/wow/search/mount'
+              '?namespace=$_staticNamespace&orderby=id&_pageSize=100&_page=$page'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+
+        if (response.statusCode != 200) break;
+
+        final data = jsonDecode(response.body);
+        pageCount = data['pageCount'] as int? ?? 1;
+
+        final results = data['results'] as List? ?? [];
+        for (final entry in results) {
+          final mountData = entry['data'] as Map<String, dynamic>?;
+          if (mountData == null) continue;
+          final id = mountData['id'] as int?;
+          if (id == null) continue;
+          final displays = mountData['creature_displays'] as List?;
+          if (displays != null && displays.isNotEmpty) {
+            final displayId = displays[0]['id'] as int?;
+            if (displayId != null) {
+              result[id] = displayId;
+            }
+          }
+        }
+
+        page++;
+      }
+
+      return result.isNotEmpty ? result : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Fetches detail for a single mount (description, creature display, source, faction).
+  Future<MountDetail?> getMountDetail(int mountId) async {
+    final token = await _authService.getAccessToken();
+    if (token == null) return null;
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+            '$_apiBase/data/wow/mount/$mountId'
+            '?namespace=$_staticNamespace&locale=$_locale'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final displays = data['creature_displays'] as List?;
+        final source = data['source'] as Map<String, dynamic>?;
+        final faction = data['faction'] as Map<String, dynamic>?;
+
+        return MountDetail(
+          id: mountId,
+          description: data['description'] as String?,
+          creatureDisplayId: displays != null && displays.isNotEmpty
+              ? displays[0]['id'] as int?
+              : null,
+          sourceType: source?['type'] as String?,
+          faction: faction?['type'] as String?,
+        );
       }
       return null;
     } catch (_) {
