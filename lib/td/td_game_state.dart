@@ -32,6 +32,7 @@ class TdGameState extends ChangeNotifier {
   // ---- live state ----
   List<TdEnemy> enemies = [];
   List<SanguinePool> sanguinePools = [];
+  List<TdHitEvent> hitEvents = [];
   TdGamePhase phase = TdGamePhase.setup;
   int currentWave = 0;
   double timer = 60.0;
@@ -59,6 +60,7 @@ class TdGameState extends ChangeNotifier {
 
     enemies = [];
     sanguinePools = [];
+    hitEvents = [];
     phase = TdGamePhase.setup;
     currentWave = 0;
     timer = 60.0;
@@ -158,6 +160,12 @@ class TdGameState extends ChangeNotifier {
       }
     }
 
+    // 7b. Age hit events and remove expired
+    for (final h in hitEvents) {
+      h.age += dt;
+    }
+    hitEvents.removeWhere((h) => h.isExpired);
+
     // 8. Remove fully dead enemies
     enemies.removeWhere((e) => e.isDead);
 
@@ -215,30 +223,47 @@ class TdGameState extends ChangeNotifier {
           .toList();
       if (laneEnemies.isEmpty) continue;
 
+      // Tower visual X (normalized 0-1, towers are near the goal = position ~0.95)
+      const towerX = 0.95;
+
       switch (tower.archetype) {
         case TowerArchetype.melee:
-          // Hits first enemy in lane (highest position).
           laneEnemies.sort((a, b) => b.position.compareTo(a.position));
           final target = laneEnemies.first;
           target.hp = (target.hp - damage).clamp(0, target.maxHp);
+          hitEvents.add(TdHitEvent(
+            towerLane: tower.laneIndex, towerX: towerX,
+            enemyId: target.id, enemyLane: target.laneIndex,
+            enemyX: target.position, damage: damage,
+          ));
           break;
 
         case TowerArchetype.ranged:
-          // Hits furthest enemy (lowest position), 0.8x damage.
           laneEnemies.sort((a, b) => a.position.compareTo(b.position));
           final target = laneEnemies.first;
-          target.hp = (target.hp - damage * 0.8).clamp(0, target.maxHp);
+          final dmg = damage * 0.8;
+          target.hp = (target.hp - dmg).clamp(0, target.maxHp);
+          hitEvents.add(TdHitEvent(
+            towerLane: tower.laneIndex, towerX: towerX,
+            enemyId: target.id, enemyLane: target.laneIndex,
+            enemyX: target.position, damage: dmg,
+          ));
           break;
 
         case TowerArchetype.aoe:
-          // Hits ALL enemies in lane, 0.4x damage.
           for (final target in laneEnemies) {
-            target.hp = (target.hp - damage * 0.4).clamp(0, target.maxHp);
+            final dmg = damage * 0.4;
+            target.hp = (target.hp - dmg).clamp(0, target.maxHp);
+            hitEvents.add(TdHitEvent(
+              towerLane: tower.laneIndex, towerX: towerX,
+              enemyId: target.id, enemyLane: target.laneIndex,
+              enemyX: target.position, damage: dmg, isAoe: true,
+            ));
           }
           break;
 
         case TowerArchetype.healer:
-          break; // handled above
+          break;
       }
     }
   }

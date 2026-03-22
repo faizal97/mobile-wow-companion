@@ -381,6 +381,11 @@ class _TdGameScreenState extends State<TdGameScreen>
                       .where((e) => e.laneIndex == laneIndex && e.position >= 0 && !e.isDead)
                       .map((enemy) => _buildEnemy(enemy, laneWidth, laneHeight)),
 
+                  // Hit particles (projectiles + damage numbers)
+                  ..._game.hitEvents
+                      .where((h) => h.enemyLane == laneIndex)
+                      .map((hit) => _buildHitParticle(hit, laneWidth, laneHeight)),
+
                   // Towers placed in this lane
                   ..._buildLaneTowers(laneIndex, laneWidth, laneHeight),
                 ],
@@ -398,26 +403,32 @@ class _TdGameScreenState extends State<TdGameScreen>
 
   Widget _buildEnemy(TdEnemy enemy, double laneWidth, double laneHeight) {
     // Enemies spawn RIGHT (position ~0), move LEFT (position -> 1.0).
-    // Visual left = (1.0 - position) * available width.
     final size = enemy.isBoss ? 36.0 : 24.0;
     final left = ((1.0 - enemy.position) * (laneWidth - size)).clamp(0.0, laneWidth - size);
     final top = (laneHeight - size) / 2;
 
+    // Check if this enemy is being hit right now (any fresh hit events targeting it)
+    final isBeingHit = _game.hitEvents.any(
+      (h) => h.enemyId == enemy.id && h.progress > 0.5 && h.progress < 0.9,
+    );
+
     final hpBarColor = enemy.isBoss ? const Color(0xFFFF8000) : const Color(0xFFFF5E5B);
-    final enemyFill = enemy.isBoss
-        ? const Color(0xFFFF8000).withValues(alpha: 0.70)
-        : const Color(0xFFFF5E5B).withValues(alpha: 0.70);
+    final enemyFill = isBeingHit
+        ? Colors.white.withValues(alpha: 0.9) // flash white on hit
+        : enemy.isBoss
+            ? const Color(0xFFFF8000).withValues(alpha: 0.70)
+            : const Color(0xFFFF5E5B).withValues(alpha: 0.70);
     final enemyBorder = enemy.isBoss ? const Color(0xFFFF8000) : const Color(0xFFFF5E5B);
 
     return Positioned(
       left: left,
-      top: top - 6, // offset up a bit for the HP bar
+      top: top - 6,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           // HP bar
           SizedBox(
-            width: size,
+            width: size + 4,
             height: 3,
             child: Stack(
               children: [
@@ -449,6 +460,15 @@ class _TdGameScreenState extends State<TdGameScreen>
               shape: enemy.isBoss ? BoxShape.rectangle : BoxShape.circle,
               borderRadius: enemy.isBoss ? BorderRadius.circular(6) : null,
               border: Border.all(color: enemyBorder, width: 1.5),
+              boxShadow: isBeingHit
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFFFFD700).withValues(alpha: 0.5),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
             ),
             child: enemy.isBoss
                 ? const Center(
@@ -456,6 +476,82 @@ class _TdGameScreenState extends State<TdGameScreen>
                   )
                 : null,
           ),
+        ],
+      ),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // 4b. Hit particles
+  // -----------------------------------------------------------------------
+
+  Widget _buildHitParticle(TdHitEvent hit, double laneWidth, double laneHeight) {
+    final progress = hit.progress;
+
+    // Projectile travels from tower position toward enemy position
+    final towerVisualX = (1.0 - hit.towerX) * laneWidth;
+    final enemyVisualX = (1.0 - hit.enemyX) * laneWidth;
+
+    // Projectile dot position (lerp from tower to enemy)
+    final dotX = towerVisualX + (enemyVisualX - towerVisualX) * progress;
+    final dotY = laneHeight / 2;
+
+    // Damage number (floats up from enemy position, fades out)
+    final dmgOpacity = (1.0 - progress).clamp(0.0, 1.0);
+    final dmgY = dotY - 20 * progress; // float upward
+
+    return Positioned(
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Projectile dot (only show in first 60% of animation)
+          if (progress < 0.6)
+            Positioned(
+              left: dotX - 3,
+              top: dotY - 3,
+              child: Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: hit.isAoe
+                      ? const Color(0xFF0070DD) // blue for AoE
+                      : const Color(0xFFFFD700), // gold for single target
+                  boxShadow: [
+                    BoxShadow(
+                      color: (hit.isAoe
+                              ? const Color(0xFF0070DD)
+                              : const Color(0xFFFFD700))
+                          .withValues(alpha: 0.6),
+                      blurRadius: 6,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Damage number (shows during last 70% of animation)
+          if (progress > 0.3)
+            Positioned(
+              left: enemyVisualX - 12,
+              top: dmgY - 8,
+              child: Opacity(
+                opacity: dmgOpacity,
+                child: Text(
+                  '-${hit.damage.round()}',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFFFFD700),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -148,6 +148,35 @@ class SanguinePool {
 // TdAffix — Mythic+ affixes that modify gameplay
 // ---------------------------------------------------------------------------
 
+/// A visual hit event emitted when a tower attacks an enemy.
+class TdHitEvent {
+  final int towerLane;
+  final double towerX; // 0.0–1.0 normalized position
+  final String enemyId;
+  final int enemyLane;
+  final double enemyX;
+  final double damage;
+  final bool isAoe;
+  double age; // seconds since creation
+
+  TdHitEvent({
+    required this.towerLane,
+    required this.towerX,
+    required this.enemyId,
+    required this.enemyLane,
+    required this.enemyX,
+    required this.damage,
+    this.isAoe = false,
+    this.age = 0,
+  });
+
+  /// How long the particle lives (seconds).
+  static const double lifetime = 0.4;
+  bool get isExpired => age >= lifetime;
+  /// 0.0 → 1.0 progress through the animation.
+  double get progress => (age / lifetime).clamp(0, 1);
+}
+
 /// Mythic+ affixes that alter tower-defense gameplay.
 enum TdAffix { fortified, tyrannical, bolstering, bursting, sanguine }
 
