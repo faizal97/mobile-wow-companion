@@ -481,18 +481,18 @@ class _TdGameScreenState extends State<TdGameScreen>
       laneTowers.add(
         Positioned(
           left: left,
-          top: top,
+          top: top - 6, // offset up to center avatar+name in lane
           child: Draggable<int>(
             data: i,
             feedback: Material(
               color: Colors.transparent,
-              child: _buildTowerCircle(tower, towerColor, isDragging: true),
+              child: _buildTowerWithName(tower, towerColor, isDragging: true),
             ),
             childWhenDragging: Opacity(
               opacity: 0.3,
-              child: _buildTowerCircle(tower, towerColor),
+              child: _buildTowerWithName(tower, towerColor),
             ),
-            child: _buildTowerCircle(tower, towerColor),
+            child: _buildTowerWithName(tower, towerColor),
           ),
         ),
       );
@@ -550,6 +550,26 @@ class _TdGameScreenState extends State<TdGameScreen>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTowerWithName(TdTower tower, Color towerColor, {bool isDragging = false}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildTowerCircle(tower, towerColor, isDragging: isDragging),
+        const SizedBox(height: 2),
+        Text(
+          tower.character.name.length > 7
+              ? '${tower.character.name.substring(0, 6)}..'
+              : tower.character.name,
+          style: GoogleFonts.rajdhani(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: towerColor.withValues(alpha: 0.8),
+          ),
+        ),
+      ],
     );
   }
 
