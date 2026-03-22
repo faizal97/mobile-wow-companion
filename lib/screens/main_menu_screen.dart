@@ -37,7 +37,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   UpdateInfo? _pendingUpdate;
   String _appVersion = '';
   int _versionTapCount = 0;
-  bool _tdUnlocked = false;
+  bool _tdUnlocked = true;
   DateTime? _lastVersionTap;
 
   @override
