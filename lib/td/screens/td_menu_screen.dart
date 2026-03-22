@@ -10,6 +10,8 @@ import '../data/effect_types.dart';
 import '../data/td_class_registry.dart';
 import '../data/td_dungeon_registry.dart';
 import '../data/td_rotation.dart';
+import 'td_class_guide_screen.dart';
+import 'td_dungeon_briefing_screen.dart';
 import 'td_game_screen.dart';
 
 class TdMenuScreen extends StatefulWidget {
@@ -230,31 +232,49 @@ class _TdMenuScreenState extends State<TdMenuScreen>
       ),
       child: Column(
         children: [
-          // Dungeon icon
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: dungeon.bossColor.withValues(alpha: 0.4),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: dungeon.bossColor.withValues(alpha: 0.15),
-                  blurRadius: 24,
-                  spreadRadius: 4,
+          // Dungeon icon — tap for briefing
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => TdDungeonBriefingScreen(dungeon: _selectedDungeon)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: dungeon.bossColor.withValues(alpha: 0.4),
+                      width: 2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: dungeon.bossColor.withValues(alpha: 0.15),
+                        blurRadius: 24,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    TdIcons.getIcon(dungeon.bossIcon),
+                    color: dungeon.bossColor.withValues(alpha: 0.9),
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'tap for info',
+                  style: GoogleFonts.inter(
+                    fontSize: 9,
+                    color: AppTheme.textTertiary,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ],
             ),
-            child: Icon(
-              TdIcons.getIcon(dungeon.bossIcon),
-              color: dungeon.bossColor.withValues(alpha: 0.9),
-              size: 30,
-            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           // Tappable dungeon name with arrows
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -514,6 +534,20 @@ class _TdMenuScreenState extends State<TdMenuScreen>
                     ? const Color(0xFFA335EE)
                     : AppTheme.textTertiary,
               ),
+            ),
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TdClassGuideScreen()),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: AppTheme.surfaceElevated,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.menu_book_rounded, size: 16, color: AppTheme.textTertiary),
             ),
           ),
         ],
