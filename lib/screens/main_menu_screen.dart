@@ -194,36 +194,85 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                           // Tower Defense (easter egg)
                           if (_tdUnlocked) ...[
                             const SizedBox(height: 16),
-                            Center(
-                              child: GestureDetector(
-                                onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(builder: (_) => const TdMenuScreen()),
+                            GestureDetector(
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => const TdMenuScreen()),
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.surface,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: AppTheme.surfaceBorder, width: 1),
                                 ),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFA335EE).withValues(alpha: 0.08),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: const Color(0xFFA335EE).withValues(alpha: 0.15),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.videogame_asset_rounded,
-                                          size: 16,
-                                          color: const Color(0xFFA335EE).withValues(alpha: 0.6)),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Tower Defense',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12,
-                                          color: const Color(0xFFA335EE).withValues(alpha: 0.6),
-                                        ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFA335EE).withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
-                                    ],
-                                  ),
+                                      child: const Icon(Icons.videogame_asset_rounded,
+                                          color: Color(0xFFA335EE), size: 24),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                'Tower Defense',
+                                                style: GoogleFonts.rajdhani(
+                                                  fontSize: 20,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textPrimary,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                    horizontal: 6, vertical: 1),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFFF8000)
+                                                      .withValues(alpha: 0.15),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  border: Border.all(
+                                                    color: const Color(0xFFFF8000)
+                                                        .withValues(alpha: 0.3),
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  'BETA',
+                                                  style: GoogleFonts.rajdhani(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: const Color(0xFFFF8000),
+                                                    letterSpacing: 1,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          Text(
+                                            'Defend the dungeon with your characters',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 13,
+                                              color: AppTheme.textSecondary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: AppTheme.textTertiary,
+                                      size: 24,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
