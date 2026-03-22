@@ -11,6 +11,7 @@ import '../data/effect_types.dart';
 import '../data/td_class_registry.dart';
 import '../models/td_models.dart';
 import '../td_game_state.dart';
+import 'td_dungeon_briefing_screen.dart';
 
 // ---------------------------------------------------------------------------
 // TdGameScreen — main gameplay UI
@@ -190,16 +191,33 @@ class _TdGameScreenState extends State<TdGameScreen>
             child: const Icon(Icons.close, color: AppTheme.textSecondary, size: 20),
           ),
           const SizedBox(width: 10),
-          // Dungeon name + key level
+          // Dungeon name + key level (tap for dungeon info)
           Expanded(
-            child: Text(
-              '${_game.keystone.dungeonName.toUpperCase()} +${_game.keystone.level}',
-              style: GoogleFonts.rajdhani(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFFA335EE),
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => TdDungeonBriefingScreen(dungeon: _game.keystone.dungeon),
+                ),
               ),
-              overflow: TextOverflow.ellipsis,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      '${_game.keystone.dungeonName.toUpperCase()} +${_game.keystone.level}',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFA335EE),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.info_outline, size: 14,
+                      color: const Color(0xFFA335EE).withValues(alpha: 0.5)),
+                ],
+              ),
             ),
           ),
           // Wave indicator
@@ -238,39 +256,65 @@ class _TdGameScreenState extends State<TdGameScreen>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         children: [
-          // Affix chips
+          // Affix + dungeon modifier chips
           Expanded(
             child: Wrap(
               spacing: 6,
               runSpacing: 4,
-              children: _game.keystone.affixes.map((a) {
-                return GestureDetector(
-                  onTap: () => _showAffixInfo(a),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFFFFA500), width: 1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          a.name.toUpperCase(),
-                          style: GoogleFonts.rajdhani(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFFFFA500),
+              children: [
+                // M+ affixes (orange)
+                ..._game.keystone.affixes.map((a) {
+                  return GestureDetector(
+                    onTap: () => _showAffixInfo(a),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFFFA500), width: 1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            a.name.toUpperCase(),
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFFFFA500),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(Icons.info_outline, size: 10,
-                            color: const Color(0xFFFFA500).withValues(alpha: 0.6)),
-                      ],
+                          const SizedBox(width: 4),
+                          Icon(Icons.info_outline, size: 10,
+                              color: const Color(0xFFFFA500).withValues(alpha: 0.6)),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              }).toList(),
+                  );
+                }),
+                // Dungeon enemy modifiers (dungeon-colored)
+                ..._game.keystone.dungeon.enemyModifiers.map((mod) {
+                  final dungeonColor = _game.keystone.dungeon.enemyColor;
+                  return GestureDetector(
+                    onTap: () => _showModifierInfo(mod),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: dungeonColor.withValues(alpha: 0.6), width: 1),
+                        borderRadius: BorderRadius.circular(4),
+                        color: dungeonColor.withValues(alpha: 0.1),
+                      ),
+                      child: Text(
+                        _modifierDisplayName(mod.type),
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: dungeonColor,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
             ),
           ),
           // Kill count
@@ -1698,6 +1742,123 @@ class _TdGameScreenState extends State<TdGameScreen>
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Dungeon modifier info
+  // -----------------------------------------------------------------------
+
+  String _modifierDisplayName(String type) {
+    const names = {
+      'spectral': 'SPECTRAL',
+      'shield': 'SHIELDS',
+      'resurrect': 'RESURRECT',
+      'phase': 'VOID PHASE',
+      'frost_aura': 'FROST AURA',
+      'lane_switch': 'EVASIVE',
+      'ranged_attack': 'RANGED',
+      'accelerate': 'ACCELERATE',
+    };
+    return names[type] ?? type.replaceAll('_', ' ').toUpperCase();
+  }
+
+  String _modifierDescription(EffectDef mod) {
+    switch (mod.type) {
+      case 'spectral':
+        final reduction = ((mod.params['damageReduction'] as num?)?.toDouble() ?? 0.5) * 100;
+        final until = ((mod.params['untilPosition'] as num?)?.toDouble() ?? 0.5) * 100;
+        return 'Enemies take ${reduction.round()}% less damage until ${until.round()}% through the lane';
+      case 'shield':
+        final hits = (mod.params['hits'] as num?)?.toInt() ?? 2;
+        final chance = ((mod.params['chance'] as num?)?.toDouble() ?? 1.0) * 100;
+        return '${chance.round()}% of enemies spawn with a shield absorbing $hits hits';
+      case 'resurrect':
+        final chance = ((mod.params['chance'] as num?)?.toDouble() ?? 0.3) * 100;
+        final hp = ((mod.params['hpFraction'] as num?)?.toDouble() ?? 0.4) * 100;
+        return '${chance.round()}% chance to resurrect with ${hp.round()}% HP on death';
+      case 'phase':
+        final dur = (mod.params['invulnDuration'] as num?)?.toDouble() ?? 0.5;
+        final interval = (mod.params['interval'] as num?)?.toDouble() ?? 3.0;
+        return 'Enemies phase out for ${dur}s every ${interval}s, becoming invulnerable';
+      case 'frost_aura':
+        final slow = ((mod.params['slowPercent'] as num?)?.toDouble() ?? 0.05) * 100;
+        return 'Enemies slow nearby tower attack speed by ${slow.round()}% (stacks)';
+      case 'lane_switch':
+        final chance = ((mod.params['chance'] as num?)?.toDouble() ?? 0.4) * 100;
+        return '${chance.round()}% chance for enemies to switch lanes mid-path';
+      case 'ranged_attack':
+        final dmg = (mod.params['damage'] as num?)?.toDouble() ?? 5.0;
+        final interval = (mod.params['interval'] as num?)?.toDouble() ?? 3.0;
+        return 'Enemies attack towers for ${dmg.round()} damage every ${interval}s';
+      case 'accelerate':
+        final start = (mod.params['startSpeedMult'] as num?)?.toDouble() ?? 0.5;
+        final end = (mod.params['endSpeedMult'] as num?)?.toDouble() ?? 1.5;
+        return 'Enemies start at ${start}x speed, accelerate to ${end}x';
+      default:
+        return mod.type.replaceAll('_', ' ');
+    }
+  }
+
+  void _showModifierInfo(EffectDef mod) {
+    final dungeonColor = _game.keystone.dungeon.enemyColor;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: dungeonColor.withValues(alpha: 0.15),
+                border: Border.all(color: dungeonColor.withValues(alpha: 0.4), width: 1.5),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                _modifierDisplayName(mod.type),
+                style: GoogleFonts.rajdhani(
+                  fontSize: 16, fontWeight: FontWeight.w700,
+                  color: dungeonColor, letterSpacing: 1,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              _modifierDescription(mod),
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: AppTheme.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Dungeon: ${_game.keystone.dungeonName}',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: AppTheme.textTertiary,
               ),
             ),
           ],
