@@ -7,12 +7,16 @@ import '../../services/character_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/wow_class_colors.dart';
 import '../data/effect_types.dart';
+import '../data/td_balance_config.dart';
 import '../data/td_class_registry.dart';
 import '../data/td_dungeon_registry.dart';
 import '../data/td_rotation.dart';
+import '../data/td_run_state.dart';
 import 'td_class_guide_screen.dart';
-import 'td_dungeon_briefing_screen.dart';
+import 'td_comp_selection_screen.dart';
+import 'td_dungeon_roulette_screen.dart';
 import 'td_game_screen.dart';
+import 'td_upgrade_screen.dart';
 
 class TdMenuScreen extends StatefulWidget {
   const TdMenuScreen({super.key});
@@ -23,18 +27,12 @@ class TdMenuScreen extends StatefulWidget {
 
 class _TdMenuScreenState extends State<TdMenuScreen>
     with SingleTickerProviderStateMixin {
-  int _keystoneLevel = 2;
-  int _selectedDungeonIndex = 0;
-  final Set<int> _selectedCharacterIds = {};
   late AnimationController _glowController;
 
   TdClassRegistry? _classRegistry;
   TdRotation? _rotation;
   List<TdDungeonDef> _dungeons = [];
   bool _dataLoading = true;
-
-  TdDungeonDef get _selectedDungeon =>
-      _dungeons[_selectedDungeonIndex % _dungeons.length];
 
   @override
   void initState() {
@@ -73,32 +71,90 @@ class _TdMenuScreenState extends State<TdMenuScreen>
     super.dispose();
   }
 
-  void _toggleCharacter(int id) {
-    setState(() {
-      if (_selectedCharacterIds.contains(id)) {
-        _selectedCharacterIds.remove(id);
-      } else if (_selectedCharacterIds.length < 5) {
-        _selectedCharacterIds.add(id);
-      }
-    });
-  }
-
-  bool get _canStart => _selectedCharacterIds.length >= 3 && !_dataLoading;
+  bool get _canStart => !_dataLoading;
 
   void _startRun(List<WowCharacter> allCharacters) {
-    final selected = allCharacters
-        .where((c) => _selectedCharacterIds.contains(c.id))
-        .toList();
-    Navigator.of(context).push(
+    final runState = TdRunState();
+    _navigateToKey(allCharacters, runState);
+  }
+
+  Future<void> _navigateToKey(
+      List<WowCharacter> allCharacters, TdRunState runState) async {
+    if (!mounted) return;
+    const config = TdBalanceConfig.defaults;
+
+    // 1. Roulette (if no current dungeon — i.e. not a depletion retry)
+    TdDungeonDef dungeon;
+    if (runState.currentDungeon != null) {
+      dungeon = runState.currentDungeon!;
+    } else {
+      final selected = await Navigator.of(context).push<TdDungeonDef>(
+        MaterialPageRoute(
+          builder: (_) => TdDungeonRouletteScreen(
+            dungeons: _dungeons,
+            keystoneLevel: runState.keystoneLevel,
+          ),
+        ),
+      );
+      if (selected == null || !mounted) return;
+      dungeon = selected;
+      runState.currentDungeon = dungeon;
+    }
+
+    // 2. Comp selection
+    if (!mounted) return;
+    final comp = await Navigator.of(context).push<List<WowCharacter>>(
       MaterialPageRoute(
-        builder: (_) => TdGameScreen(
-          characters: selected,
-          keystoneLevel: _keystoneLevel,
-          dungeon: _selectedDungeon,
+        builder: (_) => TdCompSelectionScreen(
+          allCharacters: allCharacters,
+          dungeon: dungeon,
+          keystoneLevel: runState.keystoneLevel,
+          maxTowers: runState.maxTowers(config),
           classRegistry: _classRegistry!,
         ),
       ),
     );
+    if (comp == null || !mounted) return;
+
+    // 3. Upgrade screen (if valor available)
+    if (runState.valor > 0 && mounted) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => TdUpgradeScreen(
+            runState: runState,
+            selectedCharacters: comp,
+            classRegistry: _classRegistry!,
+          ),
+        ),
+      );
+    }
+
+    // 4. Game
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<
+        ({bool cleared, int lives, int stars})>(
+      MaterialPageRoute(
+        builder: (_) => TdGameScreen(
+          characters: comp,
+          keystoneLevel: runState.keystoneLevel,
+          dungeon: dungeon,
+          classRegistry: _classRegistry!,
+          dungeons: _dungeons,
+          runState: runState,
+        ),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    // 5. Process result and loop
+    if (result.cleared) {
+      runState.onClear(result.lives, result.stars, config);
+      _navigateToKey(allCharacters, runState);
+    } else {
+      runState.onDeplete(config);
+      _navigateToKey(allCharacters, runState);
+    }
   }
 
   @override
@@ -141,25 +197,19 @@ class _TdMenuScreenState extends State<TdMenuScreen>
                   // Dungeon header
                   SliverToBoxAdapter(child: _buildDungeonHeader()),
 
-                  // Keystone selector
-                  SliverToBoxAdapter(child: _buildKeystoneSelector()),
+                  // Roster section header
+                  SliverToBoxAdapter(child: _buildRosterSectionHeader(characters.length)),
 
-                  // Party section header
-                  SliverToBoxAdapter(child: _buildPartySectionHeader()),
-
-                  // Character cards
+                  // Character roster (read-only preview)
                   SliverPadding(
                     padding: const EdgeInsets.only(bottom: 100),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
-                          final character = characters[index];
-                          final isSelected =
-                              _selectedCharacterIds.contains(character.id);
                           return _CharacterPickerCard(
-                            character: character,
-                            isSelected: isSelected,
-                            onTap: () => _toggleCharacter(character.id),
+                            character: characters[index],
+                            isSelected: false,
+                            onTap: () {}, // read-only
                             classRegistry: _classRegistry,
                           );
                         },
@@ -211,7 +261,6 @@ class _TdMenuScreenState extends State<TdMenuScreen>
   }
 
   Widget _buildDungeonHeader() {
-    final dungeon = _selectedDungeon;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.only(
@@ -232,103 +281,60 @@ class _TdMenuScreenState extends State<TdMenuScreen>
       ),
       child: Column(
         children: [
-          // Dungeon icon — tap for briefing
-          GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => TdDungeonBriefingScreen(dungeon: _selectedDungeon)),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: dungeon.bossColor.withValues(alpha: 0.4),
-                      width: 2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: dungeon.bossColor.withValues(alpha: 0.15),
-                        blurRadius: 24,
-                        spreadRadius: 4,
-                      ),
+          // Keystone gem
+          AnimatedBuilder(
+            animation: _glowController,
+            builder: (context, child) {
+              final glowIntensity = 0.15 + (_glowController.value * 0.15);
+              return Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFA335EE).withValues(alpha: 0.6),
+                    width: 2,
+                  ),
+                  gradient: RadialGradient(
+                    colors: [
+                      const Color(0xFFA335EE).withValues(alpha: glowIntensity),
+                      const Color(0xFFA335EE).withValues(alpha: glowIntensity * 0.3),
+                      Colors.transparent,
                     ],
+                    stops: const [0.0, 0.5, 1.0],
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFA335EE).withValues(alpha: glowIntensity),
+                      blurRadius: 20,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                child: Center(
                   child: Icon(
-                    TdIcons.getIcon(dungeon.bossIcon),
-                    color: dungeon.bossColor.withValues(alpha: 0.9),
-                    size: 30,
+                    Icons.diamond_rounded,
+                    color: const Color(0xFFA335EE).withValues(alpha: 0.9),
+                    size: 36,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'tap for info',
-                  style: GoogleFonts.inter(
-                    fontSize: 9,
-                    color: AppTheme.textTertiary,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'MYTHIC KEYSTONE',
+            style: GoogleFonts.rajdhani(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textPrimary,
+              letterSpacing: 3,
+              height: 1.0,
             ),
           ),
-          const SizedBox(height: 12),
-          // Tappable dungeon name with arrows
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              GestureDetector(
-                onTap: () => setState(() {
-                  _selectedDungeonIndex =
-                      (_selectedDungeonIndex - 1 + _dungeons.length) %
-                          _dungeons.length;
-                }),
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.chevron_left_rounded,
-                      color: AppTheme.textTertiary, size: 28),
-                ),
-              ),
-              Text(
-                dungeon.name.toUpperCase(),
-                style: GoogleFonts.rajdhani(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
-                  letterSpacing: 3,
-                  height: 1.0,
-                ),
-              ),
-              GestureDetector(
-                onTap: () => setState(() {
-                  _selectedDungeonIndex =
-                      (_selectedDungeonIndex + 1) % _dungeons.length;
-                }),
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.chevron_right_rounded,
-                      color: AppTheme.textTertiary, size: 28),
-                ),
-              ),
-            ],
-          ),
-          if (dungeon.theme.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              dungeon.theme,
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                color: dungeon.bossColor.withValues(alpha: 0.6),
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ],
           const SizedBox(height: 6),
           Text(
-            '${_rotation?.season ?? 'Loading...'} \u00B7 ${_selectedDungeonIndex + 1}/${_dungeons.length}',
+            _rotation?.season ?? 'Loading...',
             style: GoogleFonts.inter(
               fontSize: 13,
               fontWeight: FontWeight.w400,
@@ -336,179 +342,26 @@ class _TdMenuScreenState extends State<TdMenuScreen>
               letterSpacing: 0.5,
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Dungeon is randomly assigned',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              color: AppTheme.textTertiary.withValues(alpha: 0.6),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildKeystoneSelector() {
-    final bool showAffixWarning = _keystoneLevel >= 7;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.surfaceBorder),
-        ),
-        child: Column(
-          children: [
-            Text(
-              'KEYSTONE LEVEL',
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textTertiary,
-                letterSpacing: 1.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Minus button
-                GestureDetector(
-                  onTap: _keystoneLevel > 2
-                      ? () => setState(() => _keystoneLevel--)
-                      : null,
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: _keystoneLevel > 2
-                          ? AppTheme.surfaceElevated
-                          : AppTheme.surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: _keystoneLevel > 2
-                            ? AppTheme.surfaceBorder
-                            : AppTheme.surfaceBorder.withValues(alpha: 0.5),
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.remove_rounded,
-                      color: _keystoneLevel > 2
-                          ? AppTheme.textSecondary
-                          : AppTheme.textTertiary.withValues(alpha: 0.5),
-                      size: 20,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 24),
-
-                // Keystone gem
-                AnimatedBuilder(
-                  animation: _glowController,
-                  builder: (context, child) {
-                    final glowIntensity =
-                        0.15 + (_glowController.value * 0.15);
-                    return Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFFA335EE).withValues(alpha: 0.6),
-                          width: 2,
-                        ),
-                        gradient: RadialGradient(
-                          colors: [
-                            const Color(0xFFA335EE)
-                                .withValues(alpha: glowIntensity),
-                            const Color(0xFFA335EE)
-                                .withValues(alpha: glowIntensity * 0.3),
-                            Colors.transparent,
-                          ],
-                          stops: const [0.0, 0.5, 1.0],
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFA335EE)
-                                .withValues(alpha: glowIntensity),
-                            blurRadius: 20,
-                            spreadRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Text(
-                          '+$_keystoneLevel',
-                          style: GoogleFonts.rajdhani(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary,
-                            height: 1.0,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-
-                const SizedBox(width: 24),
-
-                // Plus button
-                GestureDetector(
-                  onTap: () => setState(() => _keystoneLevel++),
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceElevated,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppTheme.surfaceBorder),
-                    ),
-                    child: const Icon(
-                      Icons.add_rounded,
-                      color: AppTheme.textSecondary,
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // Affix warning at +7
-            if (showAffixWarning) ...[
-              const SizedBox(height: 14),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF8000).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: const Color(0xFFFF8000).withValues(alpha: 0.25),
-                  ),
-                ),
-                child: Text(
-                  '2 AFFIXES',
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFFFF8000),
-                    letterSpacing: 1.5,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPartySectionHeader() {
-    final selected = _selectedCharacterIds.length;
+  Widget _buildRosterSectionHeader(int count) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
       child: Row(
         children: [
           Text(
-            'SELECT YOUR PARTY',
+            'YOUR ROSTER',
             style: GoogleFonts.inter(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -520,19 +373,14 @@ class _TdMenuScreenState extends State<TdMenuScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: selected >= 3
-                  ? const Color(0xFFA335EE).withValues(alpha: 0.12)
-                  : AppTheme.surfaceElevated,
+              color: AppTheme.surfaceElevated,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
-              '$selected / 5',
-              style: GoogleFonts.rajdhani(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: selected >= 3
-                    ? const Color(0xFFA335EE)
-                    : AppTheme.textTertiary,
+              '$count characters',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: AppTheme.textTertiary,
               ),
             ),
           ),
@@ -556,8 +404,6 @@ class _TdMenuScreenState extends State<TdMenuScreen>
   }
 
   Widget _buildStartButton(List<WowCharacter> characters) {
-    final remaining = 3 - _selectedCharacterIds.length;
-
     return Container(
       padding: EdgeInsets.fromLTRB(
         20,
@@ -608,8 +454,8 @@ class _TdMenuScreenState extends State<TdMenuScreen>
           child: Center(
             child: Text(
               _canStart
-                  ? 'START +$_keystoneLevel KEYSTONE'
-                  : 'SELECT $remaining MORE',
+                  ? 'INSERT KEYSTONE'
+                  : 'LOADING...',
               style: GoogleFonts.rajdhani(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -796,31 +642,21 @@ class _CharacterPickerCard extends StatelessWidget {
                           ),
                         ),
 
-                      // Selection indicator
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isSelected
-                              ? classColor
-                              : Colors.transparent,
-                          border: Border.all(
-                            color: isSelected
-                                ? classColor
-                                : AppTheme.surfaceBorder,
-                            width: 2,
+                      // Selection indicator (only in comp selection mode)
+                      if (isSelected)
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: classColor,
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 14,
                           ),
                         ),
-                        child: isSelected
-                            ? const Icon(
-                                Icons.check_rounded,
-                                color: Colors.white,
-                                size: 14,
-                              )
-                            : null,
-                      ),
                     ],
                   ),
                 ),

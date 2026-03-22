@@ -129,6 +129,19 @@ class _TdClassGuideScreenState extends State<TdClassGuideScreen>
     );
   }
 
+  static String _fallbackStats(TowerArchetype archetype) {
+    switch (archetype) {
+      case TowerArchetype.melee:
+        return '1.0x damage  \u00B7  0.8s attack speed  \u00B7  targets closest enemy';
+      case TowerArchetype.ranged:
+        return '1.0x damage  \u00B7  1.0s attack speed  \u00B7  targets furthest enemy';
+      case TowerArchetype.support:
+        return 'No attack  \u00B7  buffs adjacent towers';
+      case TowerArchetype.aoe:
+        return '0.5x damage  \u00B7  1.3s attack speed  \u00B7  targets all enemies in lane';
+    }
+  }
+
   Widget _buildArchetypeTab(TowerArchetype archetype, List<TdClassDef> classes) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -159,20 +172,18 @@ class _TdClassGuideScreenState extends State<TdClassGuideScreen>
   }
 
   Widget _buildArchetypeHeader(TowerArchetype archetype) {
-    String stats;
+    // Read stats from JSON registry, with hardcoded fallbacks
+    final info = _registry?.getArchetype(archetype);
+    final stats = info?.stats ?? _fallbackStats(archetype);
     IconData icon;
     switch (archetype) {
       case TowerArchetype.melee:
-        stats = '1.0x damage  \u00B7  0.8s attack speed  \u00B7  targets closest enemy';
         icon = Icons.sports_mma_rounded;
       case TowerArchetype.ranged:
-        stats = '0.8x damage  \u00B7  1.2s attack speed  \u00B7  targets furthest enemy';
         icon = Icons.gps_fixed_rounded;
       case TowerArchetype.support:
-        stats = 'No attack  \u00B7  buffs adjacent towers';
         icon = Icons.favorite_rounded;
       case TowerArchetype.aoe:
-        stats = '0.4x damage  \u00B7  1.5s attack speed  \u00B7  targets all enemies in lane';
         icon = Icons.blur_on_rounded;
     }
 

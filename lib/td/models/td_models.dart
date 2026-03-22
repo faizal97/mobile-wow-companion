@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/character.dart';
 import '../../theme/wow_class_colors.dart';
 import '../data/effect_types.dart';
+import '../data/td_balance_config.dart';
 import '../effects/tower_effects.dart';
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,19 @@ class TdTower {
   final WowCharacter character;
   final TdClassDef classDef;
   int laneIndex;
+
+  /// Position slot within the lane: 0=front (near spawn), 1=mid, 2=back (near goal).
+  /// -1 means unassigned.
+  int slotIndex;
+
+  /// Slot positions along the lane (0.0=spawn, 1.0=goal).
+  static const List<double> slotPositions = [0.25, 0.55, 0.85];
+
+  /// The tower's position along the lane based on its slot.
+  double get slotPosition =>
+      slotIndex >= 0 && slotIndex < slotPositions.length
+          ? slotPositions[slotIndex]
+          : 0.85; // default to back if unassigned
 
   // Derived from classDef
   TowerArchetype get archetype => classDef.archetype;
@@ -46,6 +60,7 @@ class TdTower {
     required this.character,
     required this.classDef,
     required this.laneIndex,
+    this.slotIndex = -1,
   }) : baseDamage = _normalizedDamage(character.equippedItemLevel);
 
   /// Normalize ilvl to a consistent damage value regardless of stat squish.
@@ -66,19 +81,19 @@ class TdTower {
   double get effectiveDamage => isDebuffed ? baseDamage / 2 : baseDamage;
 
   /// Seconds between attacks — varies by archetype, modified by passive effects.
-  double get attackInterval {
+  /// Uses values from [TdBalanceConfig] if provided.
+  double attackIntervalWith(TdBalanceConfig config) {
     double base;
     switch (archetype) {
       case TowerArchetype.melee:
-        base = 0.8;
+        base = config.meleeAttackInterval;
       case TowerArchetype.ranged:
-        base = 1.2;
+        base = config.rangedAttackInterval;
       case TowerArchetype.support:
-        base = 2.0;
+        base = config.supportAttackInterval;
       case TowerArchetype.aoe:
-        base = 1.5;
+        base = config.aoeAttackInterval;
     }
-    // Apply attack_speed_multiplier from passive effects
     for (final effect in classDef.passive.effects) {
       if (effect.type == 'attack_speed_multiplier') {
         base *= effect.value;
@@ -87,13 +102,26 @@ class TdTower {
     return base;
   }
 
+  /// Convenience getter using default config.
+  double get attackInterval => attackIntervalWith(TdBalanceConfig.defaults);
+
   /// Check if this tower is immune to a specific affix.
   bool isImmuneToAffix(String affixName) {
     for (final effect in classDef.passive.effects) {
+      // immune_to_debuff = immune to ALL tower debuffs (Paladin)
+      if (effect.type == 'immune_to_debuff') return true;
       if (effect.type == 'immune_to_affix' &&
           effect.params['affix'] == affixName) {
         return true;
       }
+    }
+    return false;
+  }
+
+  /// Check if this tower is immune to all debuffs (e.g. Paladin).
+  bool get isImmuneToDebuff {
+    for (final effect in classDef.passive.effects) {
+      if (effect.type == 'immune_to_debuff') return true;
     }
     return false;
   }
@@ -262,8 +290,18 @@ class KeystoneRun {
     required this.dungeon,
   });
 
-  /// Enemy HP multiplier based on keystone level (scales from level 2+).
-  double get hpMultiplier => 1.0 + (level - 2) * 0.15;
+  /// Enemy HP multiplier based on keystone level.
+  /// Uses config for scaling coefficients.
+  double hpMultiplierWith(TdBalanceConfig config) {
+    if (level <= config.linearPhaseEnd) {
+      return 1.0 + (level - 2) * config.linearRate;
+    }
+    final over = level - config.linearPhaseEnd;
+    return config.exponentialBase + over * config.exponentialLinear + over * over * config.exponentialQuadratic;
+  }
+
+  /// Convenience getter using default config.
+  double get hpMultiplier => hpMultiplierWith(TdBalanceConfig.defaults);
 
   bool get hasFortified => affixes.contains(TdAffix.fortified);
   bool get hasTyrannical => affixes.contains(TdAffix.tyrannical);
@@ -272,10 +310,19 @@ class KeystoneRun {
   bool get hasSanguine => affixes.contains(TdAffix.sanguine);
 
   /// Generates a random keystone run for the given [level] and [dungeon].
-  static KeystoneRun generate(int level, {required TdDungeonDef dungeon}) {
+  static KeystoneRun generate(int level, {
+    required TdDungeonDef dungeon,
+    TdBalanceConfig config = TdBalanceConfig.defaults,
+  }) {
     final rng = Random();
     final allAffixes = List<TdAffix>.from(TdAffix.values)..shuffle(rng);
-    final count = level >= 7 ? 2 : 1;
+    final count = level >= config.threeAffixLevel
+        ? 3
+        : level >= config.twoAffixLevel
+            ? 2
+            : level >= config.oneAffixLevel
+                ? 1
+                : 0;
     return KeystoneRun(
       level: level,
       affixes: allAffixes.take(count).toList(),

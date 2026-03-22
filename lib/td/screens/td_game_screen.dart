@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -9,6 +7,7 @@ import '../../models/character.dart';
 import '../../theme/app_theme.dart';
 import '../data/effect_types.dart';
 import '../data/td_class_registry.dart';
+import '../data/td_run_state.dart';
 import '../models/td_models.dart';
 import '../td_game_state.dart';
 import 'td_dungeon_briefing_screen.dart';
@@ -22,6 +21,8 @@ class TdGameScreen extends StatefulWidget {
   final int keystoneLevel;
   final TdDungeonDef dungeon;
   final TdClassRegistry classRegistry;
+  final List<TdDungeonDef> dungeons; // rotation pool for roulette on victory
+  final TdRunState? runState;
 
   const TdGameScreen({
     super.key,
@@ -29,6 +30,8 @@ class TdGameScreen extends StatefulWidget {
     required this.keystoneLevel,
     required this.dungeon,
     required this.classRegistry,
+    required this.dungeons,
+    this.runState,
   });
 
   @override
@@ -41,14 +44,17 @@ class _TdGameScreenState extends State<TdGameScreen>
   late final Ticker _ticker;
   Duration _lastElapsed = Duration.zero;
 
-  // Track which lane is being hovered during a drag.
+  // Track which lane+slot is being hovered during a drag.
   int? _dragHoverLane;
+  int? _dragHoverSlot;
 
   @override
   void initState() {
     super.initState();
     _game = TdGameState();
-    _game.startRun(widget.characters, widget.keystoneLevel, dungeon: widget.dungeon, classRegistry: widget.classRegistry);
+    _game.startRun(widget.characters, widget.keystoneLevel,
+        dungeon: widget.dungeon, classRegistry: widget.classRegistry,
+        runState: widget.runState);
     _game.addListener(_onGameStateChanged);
     // Don't auto-start — let the player position towers first
     _ticker = createTicker(_onTick);
@@ -222,7 +228,7 @@ class _TdGameScreenState extends State<TdGameScreen>
           ),
           // Wave indicator
           Text(
-            'WAVE ${_game.currentWave}/${TdGameState.totalWaves}',
+            'WAVE ${_game.currentWave}/${_game.totalWaves}',
             style: GoogleFonts.rajdhani(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -361,116 +367,172 @@ class _TdGameScreenState extends State<TdGameScreen>
   }
 
   Widget _buildLane(int laneIndex) {
-    final isHovered = _dragHoverLane == laneIndex;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: laneIndex < 2
+              ? const BorderSide(color: AppTheme.surfaceBorder, width: 1)
+              : BorderSide.none,
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final laneWidth = constraints.maxWidth;
+          final laneHeight = constraints.maxHeight;
 
-    return DragTarget<int>(
-      onWillAcceptWithDetails: (details) {
-        setState(() => _dragHoverLane = laneIndex);
-        return true;
-      },
-      onLeave: (_) {
-        setState(() {
-          if (_dragHoverLane == laneIndex) _dragHoverLane = null;
-        });
-      },
-      onAcceptWithDetails: (details) {
-        _game.moveTower(details.data, laneIndex);
-        setState(() => _dragHoverLane = null);
-      },
-      builder: (context, candidateData, rejectedData) {
-        return Container(
-          decoration: BoxDecoration(
-            color: isHovered
-                ? const Color(0xFFA335EE).withValues(alpha: 0.08)
-                : Colors.transparent,
-            border: Border(
-              bottom: laneIndex < 2
-                  ? const BorderSide(color: AppTheme.surfaceBorder, width: 1)
-                  : BorderSide.none,
-            ),
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final laneWidth = constraints.maxWidth;
-              final laneHeight = constraints.maxHeight;
+          // Slot labels for display
+          const slotLabels = ['FRONT', 'MID', 'BACK'];
 
-              return SizedBox(
-                width: laneWidth,
-                height: laneHeight,
-                child: Stack(
-                  children: [
-                    // Goal line on the LEFT edge
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: 3,
-                      child: Container(
-                        color: const Color(0xFFFF0000).withValues(alpha: 0.30),
-                      ),
-                    ),
+          return SizedBox(
+            width: laneWidth,
+            height: laneHeight,
+            child: Stack(
+              children: [
+                // Slot drop zones (3 per lane)
+                ...List.generate(3, (slot) {
+                  // Slot zones divide the lane into 3 equal drop areas
+                  final zoneWidth = laneWidth / 3;
+                  // Slots visually: slot 2 (back) is left (near goal), slot 0 (front) is right (near spawn)
+                  final zoneLeft = (2 - slot) * zoneWidth;
+                  final isHovered = _dragHoverLane == laneIndex && _dragHoverSlot == slot;
 
-                    // Fire zones (boss mechanic)
-                    ..._game.fireZones
-                        .where((z) => z.laneIndex == laneIndex)
-                        .map((zone) => Positioned.fill(
-                              child: Container(
-                                color: const Color(0xFFFF4500).withValues(alpha: 0.1),
-                                child: Center(
-                                  child: Icon(
-                                    Icons.whatshot_rounded,
-                                    color: const Color(0xFFFF4500).withValues(alpha: 0.3),
-                                    size: 20,
+                  return Positioned(
+                    left: zoneLeft,
+                    top: 0,
+                    width: zoneWidth,
+                    height: laneHeight,
+                    child: DragTarget<int>(
+                      onWillAcceptWithDetails: (details) {
+                        setState(() {
+                          _dragHoverLane = laneIndex;
+                          _dragHoverSlot = slot;
+                        });
+                        return true;
+                      },
+                      onLeave: (_) {
+                        setState(() {
+                          if (_dragHoverLane == laneIndex && _dragHoverSlot == slot) {
+                            _dragHoverLane = null;
+                            _dragHoverSlot = null;
+                          }
+                        });
+                      },
+                      onAcceptWithDetails: (details) {
+                        _game.moveTower(details.data, laneIndex, slot: slot);
+                        setState(() {
+                          _dragHoverLane = null;
+                          _dragHoverSlot = null;
+                        });
+                      },
+                      builder: (context, candidateData, rejectedData) {
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: isHovered
+                                ? const Color(0xFFA335EE).withValues(alpha: 0.08)
+                                : Colors.transparent,
+                            border: slot < 2
+                                ? const Border(
+                                    left: BorderSide(
+                                      color: Color(0x15FFFFFF),
+                                      width: 1,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          // Show slot label when dragging
+                          child: isHovered
+                              ? Center(
+                                  child: Text(
+                                    slotLabels[slot],
+                                    style: const TextStyle(
+                                      color: Color(0x40FFFFFF),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 1.5,
+                                    ),
                                   ),
+                                )
+                              : null,
+                        );
+                      },
+                    ),
+                  );
+                }),
+
+                // Goal line on the LEFT edge
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 3,
+                  child: Container(
+                    color: const Color(0xFFFF0000).withValues(alpha: 0.30),
+                  ),
+                ),
+
+                // Fire zones (boss mechanic)
+                ..._game.fireZones
+                    .where((z) => z.laneIndex == laneIndex)
+                    .map((zone) => Positioned.fill(
+                          child: IgnorePointer(
+                            child: Container(
+                              color: const Color(0xFFFF4500).withValues(alpha: 0.1),
+                              child: Center(
+                                child: Icon(
+                                  Icons.whatshot_rounded,
+                                  color: const Color(0xFFFF4500).withValues(alpha: 0.3),
+                                  size: 20,
                                 ),
                               ),
-                            )),
-
-                    // Sanguine pools
-                    ..._game.sanguinePools
-                        .where((p) => p.laneIndex == laneIndex)
-                        .map((pool) {
-                      final poolLeft = (1.0 - pool.position) * (laneWidth - 60);
-                      return Positioned(
-                        left: poolLeft.clamp(0, laneWidth - 60),
-                        top: laneHeight * 0.25,
-                        child: Container(
-                          width: 60,
-                          height: laneHeight * 0.5,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFF0000).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: const Color(0xFFFF0000).withValues(alpha: 0.25),
                             ),
                           ),
+                        )),
+
+                // Sanguine pools
+                ..._game.sanguinePools
+                    .where((p) => p.laneIndex == laneIndex)
+                    .map((pool) {
+                  final poolLeft = (1.0 - pool.position) * (laneWidth - 60);
+                  return Positioned(
+                    left: poolLeft.clamp(0, laneWidth - 60),
+                    top: laneHeight * 0.25,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 60,
+                        height: laneHeight * 0.5,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF0000).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFFFF0000).withValues(alpha: 0.25),
+                          ),
                         ),
-                      );
-                    }),
+                      ),
+                    ),
+                  );
+                }),
 
-                    // Enemies
-                    ..._game.enemies
-                        .where((e) => e.laneIndex == laneIndex && e.position >= 0 && !e.isDead)
-                        .map((enemy) => _buildEnemy(enemy, laneWidth, laneHeight)),
+                // Enemies
+                ..._game.enemies
+                    .where((e) => e.laneIndex == laneIndex && e.position >= 0 && !e.isDead)
+                    .map((enemy) => _buildEnemy(enemy, laneWidth, laneHeight)),
 
-                    // Hit particles (projectiles + damage numbers)
-                    ..._game.hitEvents
-                        .where((h) => h.enemyLane == laneIndex)
-                        .map((hit) => _buildHitParticle(hit, laneWidth, laneHeight)),
+                // Hit particles (projectiles + damage numbers)
+                ..._game.hitEvents
+                    .where((h) => h.enemyLane == laneIndex)
+                    .map((hit) => _buildHitParticle(hit, laneWidth, laneHeight)),
 
-                    // Towers placed in this lane
-                    ..._buildLaneTowers(laneIndex, laneWidth, laneHeight),
+                // Towers placed in this lane (at slot positions)
+                ..._buildLaneTowers(laneIndex, laneWidth, laneHeight),
 
-                    // Lane preview badge (setup/between waves only)
-                    if (_game.phase == TdGamePhase.setup || _game.phase == TdGamePhase.betweenWaves)
-                      _buildLanePreviewBadge(laneIndex),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
+                // Lane preview badge (setup/between waves only)
+                if (_game.phase == TdGamePhase.setup || _game.phase == TdGamePhase.betweenWaves)
+                  _buildLanePreviewBadge(laneIndex),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -481,29 +543,37 @@ class _TdGameScreenState extends State<TdGameScreen>
 
     Color badgeColor;
     if (count < 4) {
-      badgeColor = const Color(0xFF00C853); // green
+      badgeColor = const Color(0xFF00C853); // green — light
     } else if (count <= 6) {
-      badgeColor = const Color(0xFFFFA500); // yellow/orange
+      badgeColor = const Color(0xFFFFA500); // orange — moderate
     } else {
-      badgeColor = const Color(0xFFFF5E5B); // red
+      badgeColor = const Color(0xFFFF5E5B); // red — heavy
     }
 
     return Positioned(
       right: 8,
       top: 4,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
         decoration: BoxDecoration(
-          color: badgeColor,
+          color: badgeColor.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: badgeColor.withValues(alpha: 0.4), width: 1),
         ),
-        child: Text(
-          '$count',
-          style: GoogleFonts.rajdhani(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.pest_control_rounded, size: 10, color: badgeColor),
+            const SizedBox(width: 3),
+            Text(
+              '$count',
+              style: GoogleFonts.rajdhani(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: badgeColor,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -627,33 +697,38 @@ class _TdGameScreenState extends State<TdGameScreen>
     }
   }
 
-  /// Melee: a slash mark at the enemy position — appears then fades.
+  /// Melee: a slash arc at the enemy position — quick strike then fades.
   Widget _buildMeleeHit(TdHitEvent hit, double laneWidth, double laneHeight) {
     final progress = hit.progress;
     final enemyVisualX = (1.0 - hit.enemyX) * laneWidth;
     final centerY = laneHeight / 2;
-    final opacity = (1.0 - progress).clamp(0.0, 1.0);
-    final scale = 0.5 + progress * 0.5; // grow slightly
+
+    // Quick flash: full opacity for first 40%, then rapid fade
+    final opacity = progress < 0.4 ? 1.0 : (1.0 - ((progress - 0.4) / 0.6)).clamp(0.0, 1.0);
+    // Slash swings from small to full size quickly
+    final scale = progress < 0.3 ? (0.4 + progress * 2.0) : 1.0;
+    // Slight rotation for a "swing" feel
+    final angle = -0.3 + progress * 0.6;
 
     return Positioned(
       left: 0, top: 0, right: 0, bottom: 0,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Slash "X" mark at enemy position
+          // Slash mark at enemy position
           if (progress < 0.7)
             Positioned(
-              left: enemyVisualX - 8,
-              top: centerY - 8,
+              left: enemyVisualX - 10,
+              top: centerY - 10,
               child: Opacity(
                 opacity: opacity,
                 child: Transform.scale(
                   scale: scale,
                   child: Transform.rotate(
-                    angle: math.pi / 4,
+                    angle: angle,
                     child: Icon(
                       Icons.close_rounded,
-                      size: 16,
+                      size: 20,
                       color: hit.attackColor,
                     ),
                   ),
@@ -802,21 +877,46 @@ class _TdGameScreenState extends State<TdGameScreen>
 
   List<Widget> _buildLaneTowers(int laneIndex, double laneWidth, double laneHeight) {
     final laneTowers = <Widget>[];
+
+    // Count how many towers are at each slot for vertical stacking
+    final slotCounts = <int, int>{};
+    final slotIndexMap = <int, int>{}; // towerIndex -> nth tower in that slot
+    for (var i = 0; i < _game.towers.length; i++) {
+      final tower = _game.towers[i];
+      if (tower.laneIndex != laneIndex) continue;
+      final slot = tower.slotIndex;
+      slotIndexMap[i] = slotCounts[slot] ?? 0;
+      slotCounts[slot] = (slotCounts[slot] ?? 0) + 1;
+    }
+
     for (var i = 0; i < _game.towers.length; i++) {
       final tower = _game.towers[i];
       if (tower.laneIndex != laneIndex) continue;
 
-      // Towers sit on the left-ish area (just right of the goal line), stacked.
-      final towerIndex = laneTowers.length;
-      final left = 12.0 + towerIndex * 50.0;
-      final top = (laneHeight - 40) / 2;
+      final nInSlot = slotCounts[tower.slotIndex] ?? 1;
+      final indexInSlot = slotIndexMap[i] ?? 0;
 
-      final towerColor = tower.isDebuffed ? const Color(0xFFFF5E5B) : tower.color;
+      // Position tower at its slot: slotPosition maps 0.0-1.0 where
+      // 0.0=spawn (right), 1.0=goal (left). Visual left = (1 - pos) * width.
+      final visualLeft = (1.0 - tower.slotPosition) * laneWidth - 20; // center the 44px tower
+
+      // Vertical stacking: spread towers evenly within the lane height
+      double top;
+      if (nInSlot == 1) {
+        top = (laneHeight - 40) / 2 - 6;
+      } else {
+        // Distribute vertically with some padding
+        final totalHeight = nInSlot * 46.0;
+        final startY = (laneHeight - totalHeight) / 2;
+        top = startY + indexInSlot * 46.0;
+      }
+
+      final towerColor = tower.color;
 
       laneTowers.add(
         Positioned(
-          left: left,
-          top: top - 6, // offset up to center avatar+name in lane
+          left: visualLeft.clamp(4, laneWidth - 44),
+          top: top.clamp(0, laneHeight - 50),
           child: Draggable<int>(
             data: i,
             feedback: Material(
@@ -838,42 +938,93 @@ class _TdGameScreenState extends State<TdGameScreen>
   Widget _buildTowerCircle(TdTower tower, Color towerColor, {bool isDragging = false}) {
     final isSupport = tower.archetype == TowerArchetype.support;
     final glowColor = isSupport ? tower.attackColor : towerColor;
+    final isDebuffed = tower.isDebuffed;
 
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: towerColor.withValues(alpha: isDragging ? 0.90 : 0.50),
-          width: 2,
-        ),
-        boxShadow: [
-          if (isDragging)
-            BoxShadow(
-              color: towerColor.withValues(alpha: 0.40),
-              blurRadius: 12,
-              spreadRadius: 2,
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Debuff red ring (behind the tower)
+          if (isDebuffed)
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFFF5E5B).withValues(alpha: 0.7),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFF5E5B).withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
             ),
-          if (isSupport && !isDragging)
-            BoxShadow(
-              color: glowColor.withValues(alpha: 0.35),
-              blurRadius: 10,
-              spreadRadius: 3,
+          // Tower circle (always class-colored)
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: towerColor.withValues(alpha: isDragging ? 0.90 : 0.50),
+                width: 2,
+              ),
+              boxShadow: [
+                if (isDragging)
+                  BoxShadow(
+                    color: towerColor.withValues(alpha: 0.40),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                if (isSupport && !isDragging)
+                  BoxShadow(
+                    color: glowColor.withValues(alpha: 0.35),
+                    blurRadius: 10,
+                    spreadRadius: 3,
+                  ),
+              ],
+            ),
+            child: ClipOval(
+              child: tower.character.avatarUrl != null
+                  ? CachedNetworkImage(
+                      imageUrl: tower.character.avatarUrl!,
+                      fit: BoxFit.cover,
+                      width: 40,
+                      height: 40,
+                      placeholder: (_, __) => _towerFallback(tower, towerColor),
+                      errorWidget: (_, __, ___) => _towerFallback(tower, towerColor),
+                    )
+                  : _towerFallback(tower, towerColor),
+            ),
+          ),
+          // Small debuff icon overlay (bottom-right)
+          if (isDebuffed)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF5E5B),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppTheme.background, width: 1.5),
+                ),
+                child: const Icon(
+                  Icons.arrow_downward_rounded,
+                  size: 8,
+                  color: Colors.white,
+                ),
+              ),
             ),
         ],
-      ),
-      child: ClipOval(
-        child: tower.character.avatarUrl != null
-            ? CachedNetworkImage(
-                imageUrl: tower.character.avatarUrl!,
-                fit: BoxFit.cover,
-                width: 40,
-                height: 40,
-                placeholder: (_, __) => _towerFallback(tower, towerColor),
-                errorWidget: (_, __, ___) => _towerFallback(tower, towerColor),
-              )
-            : _towerFallback(tower, towerColor),
       ),
     );
   }
@@ -927,7 +1078,7 @@ class _TdGameScreenState extends State<TdGameScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: _game.towers.map((tower) {
-          final towerColor = tower.isDebuffed ? const Color(0xFFFF5E5B) : tower.color;
+          final towerColor = tower.color;
           return Expanded(
             child: GestureDetector(
               onTap: () => _showTowerInfo(tower),
@@ -970,7 +1121,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  'L${tower.laneIndex + 1} \u00b7 ${tower.archetype.name}',
+                  'L${tower.laneIndex + 1}${tower.slotIndex >= 0 ? ' ${const ['F', 'M', 'B'][tower.slotIndex.clamp(0, 2)]}' : ''} \u00b7 ${tower.archetype.name}',
                   style: GoogleFonts.rajdhani(
                     fontSize: 9,
                     color: AppTheme.textTertiary,
@@ -1016,7 +1167,7 @@ class _TdGameScreenState extends State<TdGameScreen>
           const Icon(Icons.swap_vert_rounded, color: AppTheme.textSecondary, size: 18),
           const SizedBox(width: 8),
           Text(
-            'DRAG CHARACTERS TO POSITION IN LANES',
+            'DRAG TO FRONT / MID / BACK SLOTS IN LANES',
             style: GoogleFonts.inter(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -1130,7 +1281,7 @@ class _TdGameScreenState extends State<TdGameScreen>
 
   Widget _buildWaveClearBanner() {
     final nextWave = _game.currentWave + 1;
-    final isBossWave = nextWave == TdGameState.totalWaves;
+    final isBossWave = nextWave == _game.totalWaves;
 
     return Container(
       color: AppTheme.surfaceElevated,
@@ -1184,7 +1335,7 @@ class _TdGameScreenState extends State<TdGameScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: _game.towers.map((tower) {
-              final towerColor = tower.isDebuffed ? const Color(0xFFFF5E5B) : tower.color;
+              final towerColor = tower.color;
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1287,7 +1438,7 @@ class _TdGameScreenState extends State<TdGameScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                '+${widget.keystoneLevel} \u2022 ${_game.enemiesKilled} kills \u2022 ${_game.lives}/${TdGameState.maxLives} lives',
+                '+${widget.keystoneLevel} \u2022 ${_game.enemiesKilled} kills \u2022 ${_game.lives}/${_game.maxLives} lives',
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   color: AppTheme.textSecondary,
@@ -1318,19 +1469,11 @@ class _TdGameScreenState extends State<TdGameScreen>
                   const SizedBox(width: 16),
                   _buildPurpleButton(
                     'NEXT: +$nextLevel',
-                    onTap: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => TdGameScreen(
-                            characters: widget.characters,
-                            keystoneLevel: nextLevel,
-                            dungeon: widget.dungeon,
-                            classRegistry: widget.classRegistry,
-                          ),
-                        ),
-                      );
-                    },
+                    onTap: () => Navigator.of(context).pop((
+                      cleared: true,
+                      lives: _game.lives,
+                      stars: _game.starRating,
+                    )),
                   ),
                 ],
               ),
@@ -1365,7 +1508,7 @@ class _TdGameScreenState extends State<TdGameScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                '${_game.enemiesKilled} kills \u2022 Wave ${_game.currentWave}/${TdGameState.totalWaves}',
+                '${_game.enemiesKilled} kills \u2022 Wave ${_game.currentWave}/${_game.totalWaves}',
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   color: AppTheme.textSecondary,
@@ -1397,19 +1540,11 @@ class _TdGameScreenState extends State<TdGameScreen>
                   const SizedBox(width: 16),
                   _buildPurpleButton(
                     'RETRY +$nextLevel',
-                    onTap: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => TdGameScreen(
-                            characters: widget.characters,
-                            keystoneLevel: nextLevel,
-                            dungeon: widget.dungeon,
-                            classRegistry: widget.classRegistry,
-                          ),
-                        ),
-                      );
-                    },
+                    onTap: () => Navigator.of(context).pop((
+                      cleared: false,
+                      lives: 0,
+                      stars: 0,
+                    )),
                   ),
                 ],
               ),
@@ -1419,6 +1554,12 @@ class _TdGameScreenState extends State<TdGameScreen>
       ),
     );
   }
+
+  // -----------------------------------------------------------------------
+  // Navigation helpers
+  // -----------------------------------------------------------------------
+
+  // Victory/defeat now pop with result — the menu screen drives the loop.
 
   // -----------------------------------------------------------------------
   // Shared button helpers
@@ -1578,7 +1719,9 @@ class _TdGameScreenState extends State<TdGameScreen>
             const SizedBox(height: 10),
             _infoRow('ATTACK SPEED', 'Every ${tower.attackInterval}s', null),
             const SizedBox(height: 10),
-            _infoRow('LANE', tower.laneIndex >= 0 ? 'Lane ${tower.laneIndex + 1}' : 'Unassigned', null),
+            _infoRow('POSITION', tower.laneIndex >= 0
+                ? 'Lane ${tower.laneIndex + 1} \u00b7 ${const ['Front', 'Mid', 'Back'][tower.slotIndex.clamp(0, 2)]}'
+                : 'Unassigned', null),
             if (tower.passiveName.isNotEmpty && tower.passiveName != 'None') ...[
               const SizedBox(height: 10),
               _infoRow('PASSIVE', tower.passiveName, tower.passiveDescription),
@@ -1636,11 +1779,11 @@ class _TdGameScreenState extends State<TdGameScreen>
       case TowerArchetype.melee:
         return 'High damage, hits the closest enemy in lane';
       case TowerArchetype.ranged:
-        return 'Moderate damage (0.8x), hits the furthest enemy in lane';
+        return 'Full damage (1.0x), hits the furthest enemy in lane';
       case TowerArchetype.support:
-        return 'Does not attack. Buffs adjacent lane towers +30% damage';
+        return 'Does not attack. Buffs adjacent lane towers';
       case TowerArchetype.aoe:
-        return 'Low damage (0.4x), hits ALL enemies in lane simultaneously';
+        return 'Reduced damage (0.5x), hits ALL enemies in lane simultaneously';
     }
   }
 
@@ -1771,7 +1914,7 @@ class _TdGameScreenState extends State<TdGameScreen>
   String _modifierDescription(EffectDef mod) {
     switch (mod.type) {
       case 'spectral':
-        final reduction = ((mod.params['damageReduction'] as num?)?.toDouble() ?? 0.5) * 100;
+        final reduction = ((mod.params['damageReduction'] as num? ?? mod.params['dmgReduction'] as num?)?.toDouble() ?? 0.5) * 100;
         final until = ((mod.params['untilPosition'] as num?)?.toDouble() ?? 0.5) * 100;
         return 'Enemies take ${reduction.round()}% less damage until ${until.round()}% through the lane';
       case 'shield':

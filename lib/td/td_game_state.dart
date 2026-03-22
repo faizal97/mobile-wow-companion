@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 
 import '../models/character.dart';
 import 'data/effect_types.dart';
+import 'data/td_balance_config.dart';
 import 'data/td_class_registry.dart';
+import 'data/td_run_state.dart';
 import 'effects/tower_effects.dart';
 import 'effects/enemy_effects.dart';
 import 'effects/boss_effects.dart';
@@ -28,7 +30,9 @@ enum TdGamePhase { setup, playing, betweenWaves, victory, defeat }
 /// [tick] every frame.
 class TdGameState extends ChangeNotifier {
   // ---- configuration ----
-  static const int totalWaves = 5;
+  TdBalanceConfig config = TdBalanceConfig.defaults;
+  TdRunState? runState;
+  int get totalWaves => config.totalWaves;
 
   // ---- run parameters ----
   late KeystoneRun keystone;
@@ -40,8 +44,8 @@ class TdGameState extends ChangeNotifier {
   List<TdHitEvent> hitEvents = [];
   TdGamePhase phase = TdGamePhase.setup;
   int currentWave = 0;
-  int lives = 20;
-  static const int maxLives = 20;
+  late int lives;
+  int get maxLives => config.startingLives;
   int enemiesKilled = 0;
 
   // ---- boss mechanic state ----
@@ -60,6 +64,9 @@ class TdGameState extends ChangeNotifier {
   int _enemyIdCounter = 0;
   final Map<int, double> _towerCooldowns = {};
   final Random _rng = Random();
+
+  /// Seed for the next wave's lane assignment, so preview matches reality.
+  int _nextWaveSeed = 0;
 
   /// Star rating based on lives remaining (only valid in victory phase).
   int get starRating {
@@ -87,12 +94,27 @@ class TdGameState extends ChangeNotifier {
     int keystoneLevel, {
     required TdDungeonDef dungeon,
     required TdClassRegistry classRegistry,
+    TdBalanceConfig? balanceConfig,
+    TdRunState? runState,
   }) {
+    config = balanceConfig ?? config;
+    this.runState = runState;
     keystone = KeystoneRun.generate(keystoneLevel, dungeon: dungeon);
 
     towers = List.generate(selectedCharacters.length, (i) {
-      final classDef =
+      var classDef =
           classRegistry.getClass(selectedCharacters[i].characterClass);
+      // Apply Empower upgrade: swap to empowered passive
+      final upgrades = runState?.getUpgrades(selectedCharacters[i].id);
+      if (upgrades != null && upgrades.hasEmpower && classDef.empoweredPassive != null) {
+        classDef = TdClassDef(
+          name: classDef.name,
+          archetype: classDef.archetype,
+          passive: classDef.empoweredPassive!,
+          empoweredPassive: classDef.empoweredPassive,
+          attackColor: classDef.attackColor,
+        );
+      }
       return TdTower(
         character: selectedCharacters[i],
         classDef: classDef,
@@ -113,8 +135,26 @@ class TdGameState extends ChangeNotifier {
     _fireZones = [];
     _bossReflecting = false;
     _nextWaveLaneCounts = [0, 0, 0];
+    _nextWaveSeed = 0;
+
+    // Pre-compute wave 1 lane preview so setup phase can show it
+    _computeWave1Preview();
 
     notifyListeners();
+  }
+
+  /// Pre-compute wave 1 preview (called during startRun for setup phase).
+  void _computeWave1Preview() {
+    _nextWaveSeed = _rng.nextInt(1 << 30);
+    final pattern = keystone.dungeon.lanePattern;
+    final previewRng = Random(_nextWaveSeed);
+    final enemyCount = (config.spawnBaseCount + 1 * config.spawnCountPerWave + keystone.dungeon.enemyCountModifier)
+        .clamp(config.spawnMinCount, config.spawnMaxCount);
+    final counts = [0, 0, 0];
+    for (var i = 0; i < enemyCount; i++) {
+      counts[_assignLaneWith(pattern, i, enemyCount, previewRng)]++;
+    }
+    _nextWaveLaneCounts = counts;
   }
 
   /// Transition from setup to the first wave.
@@ -125,11 +165,14 @@ class TdGameState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Move a tower to a different lane (0-2).
-  void moveTower(int towerIndex, int newLane) {
-    if (towerIndex < 0 || towerIndex >= towers.length) return;
+  /// Move a tower to a lane (0-2) and slot (0=front, 1=mid, 2=back).
+  /// Returns false if the slot is already occupied.
+  bool moveTower(int towerIndex, int newLane, {int slot = 1}) {
+    if (towerIndex < 0 || towerIndex >= towers.length) return false;
     towers[towerIndex].laneIndex = newLane.clamp(0, 2);
+    towers[towerIndex].slotIndex = slot.clamp(0, 2);
     notifyListeners();
+    return true;
   }
 
   /// Advance to the next wave from the between-waves phase.
@@ -168,7 +211,17 @@ class TdGameState extends ChangeNotifier {
     // 4. Check enemies reaching the end — lose lives
     for (final e in enemies) {
       if (!e.isDead && e.reachedEnd) {
-        lives -= e.isBoss ? 5 : 1;
+        var leakCost = e.isBoss ? 5 : 1;
+        // Fortify upgrade: reduces boss leak cost only
+        if (e.isBoss && runState != null) {
+          final hasFortify = towers.any((t) =>
+              t.laneIndex == e.laneIndex &&
+              (runState!.getUpgrades(t.character.id)?.hasFortify ?? false));
+          if (hasFortify) {
+            leakCost = (leakCost - config.fortifyBossLeakReduction).clamp(1, leakCost);
+          }
+        }
+        lives -= leakCost;
         e.hp = 0; // remove from play
       }
     }
@@ -196,13 +249,28 @@ class TdGameState extends ChangeNotifier {
     // 10. Update sanguine pools
     _updateSanguinePools(dt);
 
-    // 11. Update tower debuff timers
+    // 11. Update tower debuff timers + cleanse_adjacent
     for (final t in towers) {
       if (t.isDebuffed) {
         t.debuffTimer -= dt;
         if (t.debuffTimer <= 0) {
           t.debuffTimer = 0;
           t.isDebuffed = false;
+        }
+      }
+      // Cleanse adjacent towers (empowered Paladin)
+      if (t.laneIndex >= 0) {
+        for (final eff in t.classDef.passive.effects) {
+          if (eff.type == 'cleanse_adjacent') {
+            for (final adj in towers) {
+              if (adj != t &&
+                  adj.isDebuffed &&
+                  (adj.laneIndex - t.laneIndex).abs() <= 1) {
+                adj.isDebuffed = false;
+                adj.debuffTimer = 0;
+              }
+            }
+          }
         }
       }
     }
@@ -251,7 +319,7 @@ class TdGameState extends ChangeNotifier {
             enemy.laneIndex = newLane;
           case AttackTowerResult(:final lane, :final damage):
             for (final t in towers) {
-              if (t.laneIndex == lane) {
+              if (t.laneIndex == lane && !t.isImmuneToDebuff) {
                 t.isDebuffed = true;
                 t.debuffTimer = (t.debuffTimer + damage * 0.1).clamp(0, 3);
               }
@@ -329,6 +397,14 @@ class TdGameState extends ChangeNotifier {
       if (tower.laneIndex < 0) continue;
       if (tower.archetype == TowerArchetype.support) continue;
 
+      // Always advance charge timer for charge_attack towers (every frame)
+      final hasChargeAttack = tower.classDef.passive.effects
+          .any((e) => e.type == 'charge_attack');
+      if (hasChargeAttack && (_towerCooldowns[i] ?? 0) > 0) {
+        // Accumulate charge time every tick while on cooldown
+        tower.chargeTimer += dt;
+      }
+
       // Advance cooldown (apply speed buff)
       final cooldownMult = speedBuff[tower.laneIndex] ?? 1.0;
       final remaining = (_towerCooldowns[i] ?? 0) - dt;
@@ -336,18 +412,20 @@ class TdGameState extends ChangeNotifier {
         _towerCooldowns[i] = remaining;
         continue;
       }
-      _towerCooldowns[i] = tower.attackInterval * cooldownMult;
+      _towerCooldowns[i] = tower.attackIntervalWith(config) * cooldownMult;
 
-      // Compute damage with buff
+      // Compute damage with buff + Sharpen upgrade
       final dmgMult = damageBuff[tower.laneIndex] ?? 1.0;
-      var baseDamage = tower.effectiveDamage * dmgMult;
+      final sharpenMult = runState?.getUpgrades(tower.character.id)
+              ?.sharpenMultiplier(config) ?? 1.0;
+      var baseDamage = tower.effectiveDamage * dmgMult * sharpenMult;
 
-      // Apply archetype damage modifier
+      // Apply archetype damage modifier from config
       switch (tower.archetype) {
         case TowerArchetype.ranged:
-          baseDamage *= 0.8;
+          baseDamage *= config.rangedDamageMult;
         case TowerArchetype.aoe:
-          baseDamage *= 0.4;
+          baseDamage *= config.aoeDamageMult;
         default:
           break;
       }
@@ -375,14 +453,14 @@ class TdGameState extends ChangeNotifier {
       );
 
       if (result.isCharging) {
-        tower.chargeTimer += dt;
-        _towerCooldowns[i] = 0.1; // check again soon
+        // Keep short cooldown so we re-check soon, but charge accumulates above
+        _towerCooldowns[i] = 0.1;
         continue;
       }
       tower.chargeTimer = 0; // reset after firing
 
       // Apply hits
-      const towerX = 0.95;
+      final towerX = tower.slotPosition;
       for (final hit in result.hits) {
         final enemy = enemies.firstWhere((e) => e.id == hit.enemyId,
             orElse: () => enemies.first);
@@ -397,9 +475,11 @@ class TdGameState extends ChangeNotifier {
 
         // Check reflect
         if (_bossReflecting && enemy.isBoss) {
-          // Damage the tower instead
-          tower.isDebuffed = true;
-          tower.debuffTimer = 0.5;
+          // Damage the tower instead (unless immune)
+          if (!tower.isImmuneToDebuff) {
+            tower.isDebuffed = true;
+            tower.debuffTimer = 0.5;
+          }
         } else {
           enemy.hp = (enemy.hp - actualDamage).clamp(0, enemy.maxHp);
         }
@@ -438,7 +518,7 @@ class TdGameState extends ChangeNotifier {
     if (boss == null) return;
 
     final events = BossEffectProcessor.processTick(
-      modifiers: keystone.dungeon.bossModifiers,
+      modifiers: keystone.dungeon.bossModifiersForLevel(keystone.level),
       state: _bossState,
       bossHpFraction: boss.hpFraction,
       bossLane: boss.laneIndex,
@@ -462,7 +542,16 @@ class TdGameState extends ChangeNotifier {
           boss.laneIndex = newLane;
         case KnockbackTowerEvent(:final towerIndex, :final newLane):
           if (towerIndex < towers.length) {
+            // Find an open slot in the new lane
+            final openSlots = [0, 1, 2]
+                .where((s) => !towers.any(
+                    (t) => t.laneIndex == newLane && t.slotIndex == s))
+                .toList();
+            final newSlot = openSlots.isNotEmpty
+                ? openSlots[_rng.nextInt(openSlots.length)]
+                : towers[towerIndex].slotIndex;
             towers[towerIndex].laneIndex = newLane;
+            towers[towerIndex].slotIndex = newSlot;
           }
         case ReflectDamageToggleEvent(:final active):
           _bossReflecting = active;
@@ -474,7 +563,7 @@ class TdGameState extends ChangeNotifier {
           }
         case StackingDamageTickEvent(:final damagePerTower):
           for (final t in towers) {
-            if (t.laneIndex >= 0) {
+            if (t.laneIndex >= 0 && !t.isImmuneToDebuff) {
               t.debuffTimer += damagePerTower;
               if (t.debuffTimer > 1.0) {
                 t.isDebuffed = true;
@@ -503,7 +592,7 @@ class TdGameState extends ChangeNotifier {
       zone.timer -= dt;
       // Damage/debuff towers in the zone's lane
       for (final t in towers) {
-        if (t.laneIndex == zone.laneIndex) {
+        if (t.laneIndex == zone.laneIndex && !t.isImmuneToDebuff) {
           t.isDebuffed = true;
           t.debuffTimer = 0.5; // short debuff pulses
         }
@@ -518,10 +607,10 @@ class TdGameState extends ChangeNotifier {
 
   void _spawnWave() {
     final dungeon = keystone.dungeon;
-    final waveScale = 1.0 + (currentWave - 1) * 0.3;
+    final waveScale = 1.0 + (currentWave - 1) * config.waveHpScalePerWave;
     final baseHp =
-        250.0 * keystone.hpMultiplier * dungeon.hpMultiplier * waveScale;
-    final baseSpeed = 0.10 * dungeon.speedMultiplier;
+        config.baseEnemyHp * keystone.hpMultiplierWith(config) * dungeon.hpMultiplier * waveScale;
+    final baseSpeed = config.baseEnemySpeed * dungeon.speedMultiplier;
 
     if (currentWave == totalWaves) {
       _spawnBossWave(baseHp, baseSpeed, dungeon);
@@ -536,32 +625,40 @@ class TdGameState extends ChangeNotifier {
   void _spawnRegularWave(
       double baseHp, double baseSpeed, TdDungeonDef dungeon) {
     final count =
-        6 + currentWave * 2 + dungeon.enemyCountModifier + _rng.nextInt(3);
-    final hpMod = keystone.hasFortified ? 1.3 : 1.0;
+        (config.spawnBaseCount + currentWave * config.spawnCountPerWave + dungeon.enemyCountModifier)
+            .clamp(config.spawnMinCount, config.spawnMaxCount);
+    final hpMod = keystone.hasFortified ? config.fortifiedHpMult : 1.0;
+
+    // Use the same seed as the preview so lane assignments match
+    final laneRng = Random(_nextWaveSeed);
 
     for (var i = 0; i < count; i++) {
       final modifiers =
-          EnemyEffectProcessor.rollSpawnModifiers(dungeon.enemyModifiers, _rng);
+          EnemyEffectProcessor.rollSpawnModifiers(
+              dungeon.enemyModifiersForLevel(keystone.level), _rng);
       final modifierState = EnemyEffectProcessor.initModifierState(modifiers);
 
       enemies.add(TdEnemy(
         id: 'e${_enemyIdCounter++}',
         maxHp: baseHp * hpMod,
-        speed: baseSpeed + _rng.nextDouble() * 0.06,
-        laneIndex: _assignLane(dungeon.lanePattern, i, count),
+        speed: baseSpeed + _rng.nextDouble() * config.spawnSpeedVariance,
+        laneIndex: _assignLaneWith(dungeon.lanePattern, i, count, laneRng),
         modifiers: modifiers,
         modifierState: modifierState,
-      )..position = -i * 0.10);
+      )..position = -i * config.spawnStaggerDistance);
     }
   }
 
   void _spawnBossWave(double baseHp, double baseSpeed, TdDungeonDef dungeon) {
-    final bossHp = baseHp * 8.0 * (keystone.hasTyrannical ? 1.5 : 1.0);
-    final bossSpeed = 0.04 * dungeon.speedMultiplier;
-    final bossLane = _rng.nextInt(3);
+    final bossHp = baseHp * config.bossHpMultiplier * (keystone.hasTyrannical ? config.tyrannicalHpMult : 1.0);
+    final bossSpeed = config.bossSpeed * dungeon.speedMultiplier;
+
+    // Use the same seed as preview for deterministic lane assignment
+    final laneRng = Random(_nextWaveSeed);
+    final bossLane = laneRng.nextInt(3);
 
     // Initialize boss state from dungeon boss modifiers
-    _bossState = BossEffectProcessor.initBossState(dungeon.bossModifiers);
+    _bossState = BossEffectProcessor.initBossState(dungeon.bossModifiersForLevel(keystone.level));
 
     enemies.add(TdEnemy(
       id: 'e${_enemyIdCounter++}',
@@ -571,20 +668,21 @@ class TdGameState extends ChangeNotifier {
       isBoss: true,
     ));
 
-    // 5 adds across lanes, staggered — with same modifiers as regular enemies
-    for (var i = 0; i < 5; i++) {
+    // Adds across lanes, staggered — with same modifiers as regular enemies
+    for (var i = 0; i < config.bossAddsCount; i++) {
       final modifiers =
-          EnemyEffectProcessor.rollSpawnModifiers(dungeon.enemyModifiers, _rng);
+          EnemyEffectProcessor.rollSpawnModifiers(
+              dungeon.enemyModifiersForLevel(keystone.level), _rng);
       final modifierState = EnemyEffectProcessor.initModifierState(modifiers);
 
       enemies.add(TdEnemy(
         id: 'e${_enemyIdCounter++}',
-        maxHp: baseHp * 0.6,
-        speed: baseSpeed + _rng.nextDouble() * 0.05,
-        laneIndex: _rng.nextInt(3),
+        maxHp: baseHp * config.bossAddsHpFraction,
+        speed: baseSpeed + _rng.nextDouble() * config.bossAddsSpeedVariance,
+        laneIndex: laneRng.nextInt(3),
         modifiers: modifiers,
         modifierState: modifierState,
-      )..position = -(i + 1) * 0.12);
+      )..position = -(i + 1) * config.bossAddsStaggerDistance);
     }
   }
 
@@ -592,24 +690,28 @@ class TdGameState extends ChangeNotifier {
   // Lane assignment
   // -----------------------------------------------------------------------
 
-  int _assignLane(LanePatternDef pattern, int index, int totalCount) {
+  /// Assign a lane using a specific [rng] — allows preview and spawn to share
+  /// the same seed for deterministic results.
+  int _assignLaneWith(LanePatternDef pattern, int index, int totalCount, Random rng) {
     switch (pattern.type) {
       case 'spread':
-        return _rng.nextInt(3);
+        return rng.nextInt(3);
       case 'heavy_center':
         final weight =
             (pattern.params['centerWeight'] as num?)?.toDouble() ?? 0.6;
-        return _rng.nextDouble() < weight ? 1 : (_rng.nextBool() ? 0 : 2);
+        return rng.nextDouble() < weight ? 1 : (rng.nextBool() ? 0 : 2);
       case 'sequential':
         return index % 3;
       case 'zerg':
-        return _rng.nextInt(3); // all lanes, just more enemies
+        return rng.nextInt(3); // all lanes, just more enemies
       case 'packs':
         final packSize =
             (pattern.params['packSize'] as num?)?.toInt() ?? 3;
         return (index ~/ packSize) % 3;
       case 'weakest_lane':
-        // Put enemies in lane with fewest towers
+        // Guarantee minimum 2 enemies per lane, then flood weakest
+        if (index < 6) return index % 3; // first 6 enemies: 2 per lane
+        // Remaining enemies go to lane with fewest towers
         final counts = [0, 0, 0];
         for (final t in towers) {
           if (t.laneIndex >= 0) counts[t.laneIndex]++;
@@ -619,12 +721,12 @@ class TdGameState extends ChangeNotifier {
           for (var i = 0; i < 3; i++)
             if (counts[i] == minCount) i,
         ];
-        return weakLanes[_rng.nextInt(weakLanes.length)];
+        return weakLanes[rng.nextInt(weakLanes.length)];
       case 'drift':
       case 'lane_switch':
-        return _rng.nextInt(3); // random start, modifier handles switching
+        return rng.nextInt(3); // random start, modifier handles switching
       default:
-        return _rng.nextInt(3);
+        return rng.nextInt(3);
     }
   }
 
@@ -639,17 +741,28 @@ class TdGameState extends ChangeNotifier {
       return;
     }
 
+    // Generate a seed for this wave — the actual spawn will use the same seed
+    _nextWaveSeed = _rng.nextInt(1 << 30);
+
     final counts = [0, 0, 0];
-    final pattern = keystone.dungeon.lanePattern;
+    final previewRng = Random(_nextWaveSeed);
 
     final isBossWave = nextWave == totalWaves;
-    final enemyCount = isBossWave
-        ? 6 // boss + adds
-        : (6 + nextWave * 2 + keystone.dungeon.enemyCountModifier).clamp(4, 20);
-
-    for (var i = 0; i < enemyCount; i++) {
-      final lane = _assignLane(pattern, i, enemyCount);
-      counts[lane]++;
+    if (isBossWave) {
+      // Boss wave: 1 boss + adds
+      final bossLane = previewRng.nextInt(3);
+      counts[bossLane]++;
+      for (var i = 0; i < config.bossAddsCount; i++) {
+        counts[previewRng.nextInt(3)]++;
+      }
+    } else {
+      final enemyCount =
+          (config.spawnBaseCount + nextWave * config.spawnCountPerWave + keystone.dungeon.enemyCountModifier)
+              .clamp(config.spawnMinCount, config.spawnMaxCount);
+      final pattern = keystone.dungeon.lanePattern;
+      for (var i = 0; i < enemyCount; i++) {
+        counts[_assignLaneWith(pattern, i, enemyCount, previewRng)]++;
+      }
     }
 
     _nextWaveLaneCounts = counts;
@@ -692,7 +805,7 @@ class TdGameState extends ChangeNotifier {
       // Check boss split on death
       if (e.isBoss) {
         final split = BossEffectProcessor.processOnDeath(
-          modifiers: keystone.dungeon.bossModifiers,
+          modifiers: keystone.dungeon.bossModifiersForLevel(keystone.level),
           bossMaxHp: e.maxHp,
           bossSpeed: e.speed,
           bossLane: e.laneIndex,
@@ -728,7 +841,7 @@ class TdGameState extends ChangeNotifier {
     if (keystone.hasBolstering) {
       for (final e in enemies) {
         if (!e.isDead && e.laneIndex == enemy.laneIndex && e != enemy) {
-          e.speedMultiplier *= 1.1;
+          e.speedMultiplier *= config.bolsteringSpeedBuff;
         }
       }
     }
@@ -740,7 +853,7 @@ class TdGameState extends ChangeNotifier {
           // Check Paladin passive immunity
           if (!t.isImmuneToAffix('bursting')) {
             t.isDebuffed = true;
-            t.debuffTimer = 2.0;
+            t.debuffTimer = config.burstingDebuffDuration;
           }
         }
       }
@@ -767,8 +880,8 @@ class TdGameState extends ChangeNotifier {
       for (final e in enemies) {
         if (!e.isDead &&
             e.laneIndex == pool.laneIndex &&
-            (e.position - pool.position).abs() <= 0.05) {
-          e.hp = (e.hp + e.maxHp * 0.15 * dt).clamp(0, e.maxHp);
+            (e.position - pool.position).abs() <= config.sanguineHealRange) {
+          e.hp = (e.hp + e.maxHp * config.sanguineHealPerSecond * dt).clamp(0, e.maxHp);
         }
       }
     }

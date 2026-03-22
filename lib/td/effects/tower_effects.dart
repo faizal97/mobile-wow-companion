@@ -243,10 +243,10 @@ class TowerEffectProcessor {
 
     for (final eff in activeEffects) {
       if (eff.type == 'slow_enemy') {
-        for (final _ in targets) {
+        for (final target in targets) {
           statusEffects.add(EnemyStatusEffect(
             type: 'slow',
-            sourceId: classDef.name,
+            sourceId: target.id, // target enemy ID so game state can apply it
             params: {'value': eff.value},
             remaining: eff.duration,
           ));
@@ -258,10 +258,10 @@ class TowerEffectProcessor {
         final dotDamage = baseDamage * percentDamage;
         final tickInterval = ticks > 0 ? duration / ticks : 1.0;
 
-        for (final _ in targets) {
+        for (final target in targets) {
           statusEffects.add(EnemyStatusEffect(
             type: 'dot',
-            sourceId: classDef.name,
+            sourceId: target.id, // target enemy ID so game state can apply it
             params: {
               'dotDamage': dotDamage,
               'tickInterval': tickInterval,

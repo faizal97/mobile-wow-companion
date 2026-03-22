@@ -120,12 +120,14 @@ class TdClassDef {
   final String name;
   final TowerArchetype archetype;
   final PassiveDef passive;
+  final PassiveDef? empoweredPassive;
   final Color attackColor;
 
   const TdClassDef({
     required this.name,
     required this.archetype,
     required this.passive,
+    this.empoweredPassive,
     this.attackColor = const Color(0xFFFFFFFF),
   });
 
@@ -136,6 +138,9 @@ class TdClassDef {
       passive: json['passive'] != null
           ? PassiveDef.fromJson(Map<String, dynamic>.from(json['passive'] as Map))
           : const PassiveDef(name: 'None'),
+      empoweredPassive: json['empoweredPassive'] != null
+          ? PassiveDef.fromJson(Map<String, dynamic>.from(json['empoweredPassive'] as Map))
+          : null,
       attackColor: _parseColor((json['attackColor'] ?? json['attack_color']) as String?),
     );
   }
@@ -191,6 +196,10 @@ class TdDungeonDef {
   final List<EffectDef> enemyModifiers;
   final List<EffectDef> bossModifiers;
 
+  /// Level-based modifier overrides. Keys are keystone levels (as strings).
+  /// At spawn, the game picks the highest tier <= current keystoneLevel.
+  final Map<int, ({List<EffectDef>? enemyMods, List<EffectDef>? bossMods})> modifierScaling;
+
   const TdDungeonDef({
     required this.key,
     required this.name,
@@ -206,7 +215,36 @@ class TdDungeonDef {
     this.lanePattern = const LanePatternDef(type: 'spread'),
     this.enemyModifiers = const [],
     this.bossModifiers = const [],
+    this.modifierScaling = const {},
   });
+
+  /// Get enemy modifiers scaled for the given keystone level.
+  List<EffectDef> enemyModifiersForLevel(int keystoneLevel) {
+    if (modifierScaling.isEmpty) return enemyModifiers;
+    int bestLevel = 0;
+    List<EffectDef>? best;
+    for (final entry in modifierScaling.entries) {
+      if (entry.key <= keystoneLevel && entry.key > bestLevel && entry.value.enemyMods != null) {
+        bestLevel = entry.key;
+        best = entry.value.enemyMods;
+      }
+    }
+    return best ?? enemyModifiers;
+  }
+
+  /// Get boss modifiers scaled for the given keystone level.
+  List<EffectDef> bossModifiersForLevel(int keystoneLevel) {
+    if (modifierScaling.isEmpty) return bossModifiers;
+    int bestLevel = 0;
+    List<EffectDef>? best;
+    for (final entry in modifierScaling.entries) {
+      if (entry.key <= keystoneLevel && entry.key > bestLevel && entry.value.bossMods != null) {
+        bestLevel = entry.key;
+        best = entry.value.bossMods;
+      }
+    }
+    return best ?? bossModifiers;
+  }
 
   factory TdDungeonDef.fromJson(String key, Map<String, dynamic> json) {
     return TdDungeonDef(
@@ -226,7 +264,28 @@ class TdDungeonDef {
           : const LanePatternDef(type: 'spread'),
       enemyModifiers: _parseEffectList(json['enemyModifiers'] ?? json['enemy_modifiers']),
       bossModifiers: _parseEffectList(json['bossModifiers'] ?? json['boss_modifiers']),
+      modifierScaling: _parseModifierScaling(json['modifierScaling']),
     );
+  }
+
+  static Map<int, ({List<EffectDef>? enemyMods, List<EffectDef>? bossMods})>
+      _parseModifierScaling(dynamic raw) {
+    if (raw == null || raw is! Map) return const {};
+    final result = <int, ({List<EffectDef>? enemyMods, List<EffectDef>? bossMods})>{};
+    for (final entry in (raw as Map<String, dynamic>).entries) {
+      final level = int.tryParse(entry.key);
+      if (level == null) continue;
+      final tier = entry.value as Map<String, dynamic>;
+      result[level] = (
+        enemyMods: tier.containsKey('enemyModifiers')
+            ? _parseEffectList(tier['enemyModifiers'])
+            : null,
+        bossMods: tier.containsKey('bossModifiers')
+            ? _parseEffectList(tier['bossModifiers'])
+            : null,
+      );
+    }
+    return result;
   }
 
   @override

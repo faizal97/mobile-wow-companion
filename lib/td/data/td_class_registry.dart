@@ -2,8 +2,39 @@ import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'effect_types.dart';
 
+/// Archetype display info loaded from classes.json.
+class ArchetypeInfo {
+  final String name;
+  final double damageMult;
+  final double attackSpeed;
+  final String targeting;
+  final String description;
+  final String stats;
+
+  const ArchetypeInfo({
+    required this.name,
+    required this.damageMult,
+    required this.attackSpeed,
+    required this.targeting,
+    required this.description,
+    required this.stats,
+  });
+
+  factory ArchetypeInfo.fromJson(String name, Map<String, dynamic> json) {
+    return ArchetypeInfo(
+      name: name,
+      damageMult: (json['damageMult'] as num?)?.toDouble() ?? 0,
+      attackSpeed: (json['attackSpeed'] as num?)?.toDouble() ?? 0,
+      targeting: json['targeting'] as String? ?? 'none',
+      description: json['description'] as String? ?? '',
+      stats: json['stats'] as String? ?? '',
+    );
+  }
+}
+
 class TdClassRegistry {
   final Map<String, TdClassDef> _classes = {};
+  final Map<String, ArchetypeInfo> _archetypes = {};
   TdClassDef? _fallback;
   bool _loaded = false;
 
@@ -14,6 +45,15 @@ class TdClassRegistry {
     try {
       final jsonStr = await rootBundle.loadString('assets/td/classes.json');
       final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+
+      // Parse archetypes
+      final archetypes = data['archetypes'] as Map<String, dynamic>? ?? {};
+      for (final entry in archetypes.entries) {
+        _archetypes[entry.key] = ArchetypeInfo.fromJson(
+          entry.key,
+          entry.value as Map<String, dynamic>,
+        );
+      }
 
       // Parse fallback
       if (data['_fallback'] != null) {
@@ -40,6 +80,11 @@ class TdClassRegistry {
   /// Returns fallback for unknown classes.
   TdClassDef getClass(String className) {
     return _classes[className.toLowerCase()] ?? fallback;
+  }
+
+  /// Get archetype display info. Returns null if not loaded.
+  ArchetypeInfo? getArchetype(TowerArchetype archetype) {
+    return _archetypes[archetype.name];
   }
 
   /// The fallback class definition for unknown classes.
