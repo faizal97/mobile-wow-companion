@@ -246,18 +246,29 @@ class _TdGameScreenState extends State<TdGameScreen>
               spacing: 6,
               runSpacing: 4,
               children: _game.keystone.affixes.map((a) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFFFFA500), width: 1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    a.name.toUpperCase(),
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFFFFA500),
+                return GestureDetector(
+                  onTap: () => _showAffixInfo(a),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0xFFFFA500), width: 1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          a.name.toUpperCase(),
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFFFFA500),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.info_outline, size: 10,
+                            color: const Color(0xFFFFA500).withValues(alpha: 0.6)),
+                      ],
                     ),
                   ),
                 );
@@ -683,7 +694,9 @@ class _TdGameScreenState extends State<TdGameScreen>
         children: _game.towers.map((tower) {
           final towerColor = tower.isDebuffed ? const Color(0xFFFF5E5B) : tower.color;
           return Expanded(
-            child: Column(
+            child: GestureDetector(
+              onTap: () => _showTowerInfo(tower),
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
@@ -729,6 +742,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                   ),
                 ),
               ],
+            ),
             ),
           );
         }).toList(),
@@ -880,6 +894,9 @@ class _TdGameScreenState extends State<TdGameScreen>
   }
 
   Widget _buildBetweenWavesOverlay() {
+    final nextWave = _game.currentWave + 1;
+    final isBossWave = nextWave == TdGameState.totalWaves;
+
     return Positioned.fill(
       child: Container(
         color: AppTheme.background.withValues(alpha: 0.80),
@@ -895,17 +912,113 @@ class _TdGameScreenState extends State<TdGameScreen>
                   color: const Color(0xFF00FF98),
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Reposition towers',
-                style: GoogleFonts.rajdhani(
-                  fontSize: 16,
-                  color: AppTheme.textSecondary,
+              const SizedBox(height: 16),
+              // Next wave preview
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 40),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isBossWave
+                        ? const Color(0xFFFF8000).withValues(alpha: 0.4)
+                        : AppTheme.surfaceBorder,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'NEXT: WAVE $nextWave',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textTertiary,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (isBossWave) ...[
+                      const Icon(Icons.local_fire_department,
+                          color: Color(0xFFFF8000), size: 24),
+                      const SizedBox(height: 4),
+                      Text(
+                        'BOSS WAVE',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFFFF8000),
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      Text(
+                        '1 Boss + 3 adds',
+                        style: GoogleFonts.inter(
+                          fontSize: 12, color: AppTheme.textSecondary,
+                        ),
+                      ),
+                      if (_game.keystone.hasTyrannical)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Tyrannical: Boss has +50% HP!',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: const Color(0xFFFFA500),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ] else ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 14, height: 14,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFFFF5E5B).withValues(alpha: 0.7),
+                              border: Border.all(color: const Color(0xFFFF5E5B), width: 1),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '5–8 enemies',
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_game.keystone.hasFortified)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Fortified: Enemies have +30% HP',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: const Color(0xFFFFA500),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 8),
+              Text(
+                'Reposition towers before continuing',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: AppTheme.textTertiary,
+                ),
+              ),
+              const SizedBox(height: 16),
               _buildPurpleButton(
-                'START WAVE ${_game.currentWave + 1}',
+                'START WAVE $nextWave',
                 onTap: _startNextWave,
               ),
             ],
@@ -1046,6 +1159,258 @@ class _TdGameScreenState extends State<TdGameScreen>
             fontWeight: FontWeight.w700,
             color: AppTheme.textSecondary,
           ),
+        ),
+      ),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Info sheets
+  // -----------------------------------------------------------------------
+
+  void _showTowerInfo(TdTower tower) {
+    final classColor = tower.color;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle
+            Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceBorder,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Avatar + name
+            Row(
+              children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: classColor, width: 2),
+                  ),
+                  child: ClipOval(
+                    child: tower.character.avatarUrl != null
+                        ? CachedNetworkImage(
+                            imageUrl: tower.character.avatarUrl!,
+                            fit: BoxFit.cover, width: 48, height: 48,
+                          )
+                        : Container(
+                            color: classColor.withValues(alpha: 0.15),
+                            child: Center(
+                              child: Text(
+                                tower.character.name[0].toUpperCase(),
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 22, fontWeight: FontWeight.w700, color: classColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tower.character.name,
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 22, fontWeight: FontWeight.w700, color: classColor,
+                      ),
+                    ),
+                    Text(
+                      '${tower.character.characterClass} · ${tower.character.activeSpec}',
+                      style: GoogleFonts.inter(
+                        fontSize: 13, color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Stats
+            _infoRow('ARCHETYPE', tower.archetype.name.toUpperCase(), _archetypeDescription(tower.archetype)),
+            const SizedBox(height: 10),
+            _infoRow('ITEM LEVEL', '${tower.character.equippedItemLevel ?? "?"}', null),
+            const SizedBox(height: 10),
+            _infoRow('BASE DAMAGE', '${tower.baseDamage.toStringAsFixed(1)} / hit', null),
+            const SizedBox(height: 10),
+            _infoRow('ATTACK SPEED', 'Every ${tower.attackInterval}s', null),
+            const SizedBox(height: 10),
+            _infoRow('LANE', tower.laneIndex >= 0 ? 'Lane ${tower.laneIndex + 1}' : 'Unassigned', null),
+            if (tower.isDebuffed) ...[
+              const SizedBox(height: 10),
+              _infoRow('STATUS', 'DEBUFFED', 'Damage reduced by 50%'),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value, String? description) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 110,
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 10, fontWeight: FontWeight.w600,
+              color: AppTheme.textTertiary, letterSpacing: 1,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: GoogleFonts.rajdhani(
+                  fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary,
+                ),
+              ),
+              if (description != null)
+                Text(
+                  description,
+                  style: GoogleFonts.inter(
+                    fontSize: 11, color: AppTheme.textTertiary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _archetypeDescription(TowerArchetype archetype) {
+    switch (archetype) {
+      case TowerArchetype.melee:
+        return 'High damage, hits the closest enemy in lane';
+      case TowerArchetype.ranged:
+        return 'Moderate damage (0.8x), hits the furthest enemy in lane';
+      case TowerArchetype.healer:
+        return 'Does not attack. Buffs adjacent lane towers +30% damage';
+      case TowerArchetype.aoe:
+        return 'Low damage (0.4x), hits ALL enemies in lane simultaneously';
+    }
+  }
+
+  static const Map<TdAffix, ({String name, String description, String effect})> _affixInfo = {
+    TdAffix.fortified: (
+      name: 'Fortified',
+      description: 'Non-boss enemies are tougher',
+      effect: '+30% HP on regular enemies',
+    ),
+    TdAffix.tyrannical: (
+      name: 'Tyrannical',
+      description: 'Boss enemies are significantly stronger',
+      effect: '+50% HP on bosses',
+    ),
+    TdAffix.bolstering: (
+      name: 'Bolstering',
+      description: 'Killing an enemy empowers its allies',
+      effect: 'When an enemy dies, others in that lane gain +10% speed',
+    ),
+    TdAffix.bursting: (
+      name: 'Bursting',
+      description: 'Dying enemies lash out at your towers',
+      effect: 'Dead enemies debuff towers in their lane for 2s (50% damage reduction)',
+    ),
+    TdAffix.sanguine: (
+      name: 'Sanguine',
+      description: 'Fallen enemies leave healing pools',
+      effect: 'Dead enemies leave a zone that heals enemies passing through (15% HP/s for 4s)',
+    ),
+  };
+
+  void _showAffixInfo(TdAffix affix) {
+    final info = _affixInfo[affix]!;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFFFFA500), width: 1.5),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    info.name.toUpperCase(),
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 16, fontWeight: FontWeight.w700,
+                      color: const Color(0xFFFFA500), letterSpacing: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              info.description,
+              style: GoogleFonts.rajdhani(
+                fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFFA500).withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.bolt, color: Color(0xFFFFA500), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      info.effect,
+                      style: GoogleFonts.inter(
+                        fontSize: 13, color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
