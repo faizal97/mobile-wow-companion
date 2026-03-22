@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -361,6 +363,24 @@ class _TdGameScreenState extends State<TdGameScreen>
                     ),
                   ),
 
+                  // Fire zones (boss mechanic)
+                  ..._game.fireZones
+                      .where((z) => z.laneIndex == laneIndex)
+                      .map((zone) => Positioned(
+                        left: 0, right: 0,
+                        top: 0, bottom: 0,
+                        child: Container(
+                          color: const Color(0xFFFF4500).withValues(alpha: 0.1),
+                          child: Center(
+                            child: Icon(
+                              Icons.whatshot_rounded,
+                              color: const Color(0xFFFF4500).withValues(alpha: 0.3),
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      )),
+
                   // Sanguine pools
                   ..._game.sanguinePools
                       .where((p) => p.laneIndex == laneIndex)
@@ -395,12 +415,51 @@ class _TdGameScreenState extends State<TdGameScreen>
 
                   // Towers placed in this lane
                   ..._buildLaneTowers(laneIndex, laneWidth, laneHeight),
+
+                  // Lane preview badge (setup/between waves only)
+                  if (_game.phase == TdGamePhase.setup || _game.phase == TdGamePhase.betweenWaves)
+                    _buildLanePreviewBadge(laneIndex),
                 ],
               );
             },
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLanePreviewBadge(int laneIndex) {
+    final counts = _game.nextWaveLaneCounts;
+    final count = laneIndex < counts.length ? counts[laneIndex] : 0;
+    if (count <= 0) return const SizedBox.shrink();
+
+    Color badgeColor;
+    if (count < 4) {
+      badgeColor = const Color(0xFF00C853); // green
+    } else if (count <= 6) {
+      badgeColor = const Color(0xFFFFA500); // yellow/orange
+    } else {
+      badgeColor = const Color(0xFFFF5E5B); // red
+    }
+
+    return Positioned(
+      right: 8,
+      top: 4,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: badgeColor,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          '$count',
+          style: GoogleFonts.rajdhani(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
+      ),
     );
   }
 
@@ -425,65 +484,82 @@ class _TdGameScreenState extends State<TdGameScreen>
         : baseColor.withValues(alpha: 0.70);
     final enemyBorder = baseColor;
 
+    // Shield modifier: blue border
+    final hasShield = enemy.shieldHits > 0;
+    final shieldBorder = hasShield
+        ? Border.all(color: const Color(0xFF4FC3F7), width: 2.5)
+        : Border.all(color: enemyBorder, width: 1.5);
+
+    // Phase/spectral invulnerability: reduce opacity
+    final enemyOpacity = enemy.isInvulnerable ? 0.4 : 1.0;
+
     return Positioned(
       left: left,
       top: top - 6,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // HP bar
-          SizedBox(
-            width: size + 4,
-            height: 3,
-            child: Stack(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF330000),
-                    borderRadius: BorderRadius.circular(1.5),
-                  ),
-                ),
-                FractionallySizedBox(
-                  widthFactor: enemy.hpFraction.clamp(0, 1),
-                  child: Container(
+      child: Opacity(
+        opacity: enemyOpacity,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // HP bar
+            SizedBox(
+              width: size + 4,
+              height: 3,
+              child: Stack(
+                children: [
+                  Container(
                     decoration: BoxDecoration(
-                      color: hpBarColor,
+                      color: const Color(0xFF330000),
                       borderRadius: BorderRadius.circular(1.5),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 3),
-          // Enemy body
-          Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: enemyFill,
-              shape: enemy.isBoss ? BoxShape.rectangle : BoxShape.circle,
-              borderRadius: enemy.isBoss ? BorderRadius.circular(6) : null,
-              border: Border.all(color: enemyBorder, width: 1.5),
-              boxShadow: isBeingHit
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFFFFD700).withValues(alpha: 0.5),
-                        blurRadius: 8,
-                        spreadRadius: 2,
+                  FractionallySizedBox(
+                    widthFactor: enemy.hpFraction.clamp(0, 1),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: hpBarColor,
+                        borderRadius: BorderRadius.circular(1.5),
                       ),
-                    ]
-                  : null,
-            ),
-            child: Center(
-              child: Icon(
-                TdIcons.getIcon(enemy.isBoss ? dungeon.bossIcon : dungeon.enemyIcon),
-                color: Colors.white,
-                size: enemy.isBoss ? 18 : 14,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 3),
+            // Enemy body
+            Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: enemyFill,
+                shape: enemy.isBoss ? BoxShape.rectangle : BoxShape.circle,
+                borderRadius: enemy.isBoss ? BorderRadius.circular(6) : null,
+                border: shieldBorder,
+                boxShadow: [
+                  if (isBeingHit)
+                    BoxShadow(
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.5),
+                      blurRadius: 8,
+                      spreadRadius: 2,
+                    ),
+                  if (hasShield)
+                    BoxShadow(
+                      color: const Color(0xFF4FC3F7).withValues(alpha: 0.3),
+                      blurRadius: 6,
+                      spreadRadius: 1,
+                    ),
+                ],
+              ),
+              child: Center(
+                child: Icon(
+                  TdIcons.getIcon(enemy.isBoss ? dungeon.bossIcon : dungeon.enemyIcon),
+                  color: Colors.white,
+                  size: enemy.isBoss ? 18 : 14,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -493,75 +569,185 @@ class _TdGameScreenState extends State<TdGameScreen>
   // -----------------------------------------------------------------------
 
   Widget _buildHitParticle(TdHitEvent hit, double laneWidth, double laneHeight) {
+    switch (hit.archetype) {
+      case TowerArchetype.melee:
+        return _buildMeleeHit(hit, laneWidth, laneHeight);
+      case TowerArchetype.ranged:
+        return _buildRangedHit(hit, laneWidth, laneHeight);
+      case TowerArchetype.aoe:
+        return _buildAoeHit(hit, laneWidth, laneHeight);
+      case TowerArchetype.support:
+        return const SizedBox.shrink(); // supports don't generate hits
+    }
+  }
+
+  /// Melee: a slash mark at the enemy position — appears then fades.
+  Widget _buildMeleeHit(TdHitEvent hit, double laneWidth, double laneHeight) {
     final progress = hit.progress;
-
-    // Projectile travels from tower position toward enemy position
-    final towerVisualX = (1.0 - hit.towerX) * laneWidth;
     final enemyVisualX = (1.0 - hit.enemyX) * laneWidth;
-
-    // Projectile dot position (lerp from tower to enemy)
-    final dotX = towerVisualX + (enemyVisualX - towerVisualX) * progress;
-    final dotY = laneHeight / 2;
-
-    // Damage number (floats up from enemy position, fades out)
-    final dmgOpacity = (1.0 - progress).clamp(0.0, 1.0);
-    final dmgY = dotY - 20 * progress; // float upward
+    final centerY = laneHeight / 2;
+    final opacity = (1.0 - progress).clamp(0.0, 1.0);
+    final scale = 0.5 + progress * 0.5; // grow slightly
 
     return Positioned(
-      left: 0,
-      top: 0,
-      right: 0,
-      bottom: 0,
+      left: 0, top: 0, right: 0, bottom: 0,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Projectile dot (only show in first 60% of animation)
+          // Slash "X" mark at enemy position
+          if (progress < 0.7)
+            Positioned(
+              left: enemyVisualX - 8,
+              top: centerY - 8,
+              child: Opacity(
+                opacity: opacity,
+                child: Transform.scale(
+                  scale: scale,
+                  child: Transform.rotate(
+                    angle: math.pi / 4,
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: hit.attackColor,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Damage number
+          ..._buildDamageNumber(hit, enemyVisualX, centerY),
+        ],
+      ),
+    );
+  }
+
+  /// Ranged: projectile dot traveling from tower to enemy.
+  Widget _buildRangedHit(TdHitEvent hit, double laneWidth, double laneHeight) {
+    final progress = hit.progress;
+    final towerVisualX = (1.0 - hit.towerX) * laneWidth;
+    final enemyVisualX = (1.0 - hit.enemyX) * laneWidth;
+    final dotX = towerVisualX + (enemyVisualX - towerVisualX) * progress;
+    final centerY = laneHeight / 2;
+
+    final dotSize = hit.isCrit ? 10.0 : 6.0;
+    final glowAlpha = hit.isCrit ? 0.8 : 0.6;
+
+    return Positioned(
+      left: 0, top: 0, right: 0, bottom: 0,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Projectile dot (first 60% of animation)
           if (progress < 0.6)
             Positioned(
-              left: dotX - 3,
-              top: dotY - 3,
+              left: dotX - dotSize / 2,
+              top: centerY - dotSize / 2,
               child: Container(
-                width: 6,
-                height: 6,
+                width: dotSize,
+                height: dotSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: hit.isAoe
-                      ? const Color(0xFF0070DD) // blue for AoE
-                      : const Color(0xFFFFD700), // gold for single target
+                  color: hit.attackColor,
                   boxShadow: [
                     BoxShadow(
-                      color: (hit.isAoe
-                              ? const Color(0xFF0070DD)
-                              : const Color(0xFFFFD700))
-                          .withValues(alpha: 0.6),
-                      blurRadius: 6,
-                      spreadRadius: 1,
+                      color: hit.attackColor.withValues(alpha: glowAlpha),
+                      blurRadius: hit.isCrit ? 10 : 6,
+                      spreadRadius: hit.isCrit ? 2 : 1,
                     ),
                   ],
                 ),
               ),
             ),
+          // Damage number
+          ..._buildDamageNumber(hit, enemyVisualX, centerY),
+        ],
+      ),
+    );
+  }
 
-          // Damage number (shows during last 70% of animation)
-          if (progress > 0.3)
+  /// AoE: horizontal wave ripple across the lane at enemy Y position.
+  Widget _buildAoeHit(TdHitEvent hit, double laneWidth, double laneHeight) {
+    final progress = hit.progress;
+    final enemyVisualX = (1.0 - hit.enemyX) * laneWidth;
+    final centerY = laneHeight / 2;
+    final opacity = (1.0 - progress).clamp(0.0, 1.0);
+    final waveWidth = laneWidth * 0.4 * (0.3 + progress * 0.7); // expands
+
+    return Positioned(
+      left: 0, top: 0, right: 0, bottom: 0,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Horizontal wave line
+          if (progress < 0.7)
             Positioned(
-              left: enemyVisualX - 12,
-              top: dmgY - 8,
+              left: enemyVisualX - waveWidth / 2,
+              top: centerY - 1,
               child: Opacity(
-                opacity: dmgOpacity,
-                child: Text(
-                  '-${hit.damage.round()}',
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFFFFD700),
+                opacity: opacity * 0.7,
+                child: Container(
+                  width: waveWidth,
+                  height: 2,
+                  decoration: BoxDecoration(
+                    color: hit.attackColor,
+                    borderRadius: BorderRadius.circular(1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: hit.attackColor.withValues(alpha: 0.4),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
+          // Damage number
+          ..._buildDamageNumber(hit, enemyVisualX, centerY),
         ],
       ),
     );
+  }
+
+  /// Shared damage number widgets (float up, fade out, colored by attackColor).
+  List<Widget> _buildDamageNumber(TdHitEvent hit, double enemyVisualX, double centerY) {
+    final progress = hit.progress;
+    final dmgOpacity = (1.0 - progress).clamp(0.0, 1.0);
+    final dmgY = centerY - 20 * progress;
+
+    if (progress <= 0.3) return const [];
+
+    return [
+      Positioned(
+        left: enemyVisualX - 16,
+        top: dmgY - 8,
+        child: Opacity(
+          opacity: dmgOpacity,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (hit.isCrit)
+                Text(
+                  'CRIT!',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: hit.attackColor,
+                  ),
+                ),
+              Text(
+                '-${hit.damage.round()}',
+                style: GoogleFonts.rajdhani(
+                  fontSize: hit.isCrit ? 14 : 12,
+                  fontWeight: FontWeight.w700,
+                  color: hit.attackColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
   }
 
   // -----------------------------------------------------------------------
@@ -604,6 +790,9 @@ class _TdGameScreenState extends State<TdGameScreen>
   }
 
   Widget _buildTowerCircle(TdTower tower, Color towerColor, {bool isDragging = false}) {
+    final isSupport = tower.archetype == TowerArchetype.support;
+    final glowColor = isSupport ? tower.attackColor : towerColor;
+
     return Container(
       width: 40,
       height: 40,
@@ -613,15 +802,20 @@ class _TdGameScreenState extends State<TdGameScreen>
           color: towerColor.withValues(alpha: isDragging ? 0.90 : 0.50),
           width: 2,
         ),
-        boxShadow: isDragging
-            ? [
-                BoxShadow(
-                  color: towerColor.withValues(alpha: 0.40),
-                  blurRadius: 12,
-                  spreadRadius: 2,
-                ),
-              ]
-            : null,
+        boxShadow: [
+          if (isDragging)
+            BoxShadow(
+              color: towerColor.withValues(alpha: 0.40),
+              blurRadius: 12,
+              spreadRadius: 2,
+            ),
+          if (isSupport && !isDragging)
+            BoxShadow(
+              color: glowColor.withValues(alpha: 0.35),
+              blurRadius: 10,
+              spreadRadius: 3,
+            ),
+        ],
       ),
       child: ClipOval(
         child: tower.character.avatarUrl != null
@@ -1223,6 +1417,34 @@ class _TdGameScreenState extends State<TdGameScreen>
             // Stats
             _infoRow('ARCHETYPE', tower.archetype.name.toUpperCase(), _archetypeDescription(tower.archetype)),
             const SizedBox(height: 10),
+            // Attack color swatch
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 110,
+                  child: Text(
+                    'ATTACK COLOR',
+                    style: GoogleFonts.inter(
+                      fontSize: 10, fontWeight: FontWeight.w600,
+                      color: AppTheme.textTertiary, letterSpacing: 1,
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 16, height: 16,
+                  decoration: BoxDecoration(
+                    color: tower.attackColor,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: tower.attackColor.withValues(alpha: 0.5)),
+                    boxShadow: [
+                      BoxShadow(color: tower.attackColor.withValues(alpha: 0.4), blurRadius: 4),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             _infoRow('ITEM LEVEL', '${tower.character.equippedItemLevel ?? "?"}', null),
             const SizedBox(height: 10),
             _infoRow('BASE DAMAGE', '${tower.baseDamage.toStringAsFixed(1)} / hit', null),
@@ -1230,6 +1452,10 @@ class _TdGameScreenState extends State<TdGameScreen>
             _infoRow('ATTACK SPEED', 'Every ${tower.attackInterval}s', null),
             const SizedBox(height: 10),
             _infoRow('LANE', tower.laneIndex >= 0 ? 'Lane ${tower.laneIndex + 1}' : 'Unassigned', null),
+            if (tower.passiveName.isNotEmpty && tower.passiveName != 'None') ...[
+              const SizedBox(height: 10),
+              _infoRow('PASSIVE', tower.passiveName, tower.passiveDescription),
+            ],
             if (tower.isDebuffed) ...[
               const SizedBox(height: 10),
               _infoRow('STATUS', 'DEBUFFED', 'Damage reduced by 50%'),
