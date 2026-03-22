@@ -4,57 +4,31 @@ import 'package:flutter/material.dart';
 
 import '../../models/character.dart';
 import '../../theme/wow_class_colors.dart';
-
-// ---------------------------------------------------------------------------
-// Tower Archetype
-// ---------------------------------------------------------------------------
-
-/// Determines a tower's attack style based on the WoW class it represents.
-enum TowerArchetype { melee, ranged, healer, aoe }
-
-/// Maps a WoW class name to its tower archetype.
-TowerArchetype archetypeForClass(String characterClass) {
-  switch (characterClass.toLowerCase()) {
-    case 'warrior':
-    case 'rogue':
-    case 'death knight':
-    case 'paladin':
-    case 'monk':
-    case 'demon hunter':
-      return TowerArchetype.melee;
-    case 'mage':
-    case 'hunter':
-    case 'warlock':
-    case 'evoker':
-      return TowerArchetype.ranged;
-    case 'priest':
-    case 'druid':
-      return TowerArchetype.healer;
-    case 'shaman':
-      return TowerArchetype.aoe;
-    default:
-      return TowerArchetype.melee;
-  }
-}
+import '../data/effect_types.dart';
+import '../effects/tower_effects.dart';
 
 // ---------------------------------------------------------------------------
 // TdTower — a WoW character placed in a lane
 // ---------------------------------------------------------------------------
 
 /// A tower is a WoW character placed in a lane. Its stats are derived from
-/// the character's class and item level.
+/// the character's class definition and item level.
 class TdTower {
   final WowCharacter character;
-  final int laneIndex;
+  final TdClassDef classDef;
+  int laneIndex;
 
-  /// Derived from [character.characterClass].
-  final TowerArchetype archetype;
+  // Derived from classDef
+  TowerArchetype get archetype => classDef.archetype;
+  Color get color => WowClassColors.forClass(character.characterClass);
+  Color get attackColor => classDef.attackColor;
+  String get passiveName => classDef.passive.name;
+  String get passiveDescription => classDef.passive.description;
 
   /// Derived from [character.equippedItemLevel] (defaults to 600).
   final double baseDamage;
 
-  /// Derived from [WowClassColors.forClass].
-  final Color color;
+  // Mutable combat state
 
   /// Whether the tower is currently debuffed (e.g. by Bursting).
   bool isDebuffed = false;
@@ -62,10 +36,17 @@ class TdTower {
   /// Remaining debuff duration in seconds.
   double debuffTimer = 0;
 
-  TdTower({required this.character, required this.laneIndex})
-      : archetype = archetypeForClass(character.characterClass),
-        baseDamage = _normalizedDamage(character.equippedItemLevel),
-        color = WowClassColors.forClass(character.characterClass);
+  /// Total attacks this tower has made (for on_nth_attack tracking).
+  int attackCount = 0;
+
+  /// Seconds elapsed since last charge began (for charge_attack effect).
+  double chargeTimer = 0;
+
+  TdTower({
+    required this.character,
+    required this.classDef,
+    required this.laneIndex,
+  }) : baseDamage = _normalizedDamage(character.equippedItemLevel);
 
   /// Normalize ilvl to a consistent damage value regardless of stat squish.
   /// Pre-Midnight ilvl ~560-640 and post-Midnight ilvl ~80-120 both map
@@ -84,18 +65,37 @@ class TdTower {
   /// Returns half damage when debuffed.
   double get effectiveDamage => isDebuffed ? baseDamage / 2 : baseDamage;
 
-  /// Seconds between attacks — varies by archetype.
+  /// Seconds between attacks — varies by archetype, modified by passive effects.
   double get attackInterval {
+    double base;
     switch (archetype) {
       case TowerArchetype.melee:
-        return 0.8;
+        base = 0.8;
       case TowerArchetype.ranged:
-        return 1.2;
-      case TowerArchetype.healer:
-        return 2.0;
+        base = 1.2;
+      case TowerArchetype.support:
+        base = 2.0;
       case TowerArchetype.aoe:
-        return 1.5;
+        base = 1.5;
     }
+    // Apply attack_speed_multiplier from passive effects
+    for (final effect in classDef.passive.effects) {
+      if (effect.type == 'attack_speed_multiplier') {
+        base *= effect.value;
+      }
+    }
+    return base;
+  }
+
+  /// Check if this tower is immune to a specific affix.
+  bool isImmuneToAffix(String affixName) {
+    for (final effect in classDef.passive.effects) {
+      if (effect.type == 'immune_to_affix' &&
+          effect.params['affix'] == affixName) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
@@ -115,11 +115,25 @@ class TdEnemy {
   /// Movement speed in position-units per second.
   final double speed;
 
-  final int laneIndex;
+  /// The lane this enemy is in. Mutable because lane_switch modifier can
+  /// change it mid-run.
+  int laneIndex;
+
   final bool isBoss;
 
   /// Multiplier applied to [speed] (e.g. by affixes).
   double speedMultiplier;
+
+  // Effect system additions
+
+  /// Modifiers from dungeon definition (e.g. shield, phase, lane_switch).
+  final List<EffectDef> modifiers;
+
+  /// Mutable state for modifiers (e.g. shield_hits, phase_invuln).
+  final Map<String, dynamic> modifierState;
+
+  /// Active slows, dots, and other debuffs on this enemy.
+  List<EnemyStatusEffect> statusEffects;
 
   TdEnemy({
     required this.id,
@@ -128,12 +142,22 @@ class TdEnemy {
     required this.laneIndex,
     this.isBoss = false,
     this.speedMultiplier = 1.0,
+    this.modifiers = const [],
+    Map<String, dynamic>? modifierState,
   })  : hp = maxHp,
-        position = 0.0;
+        position = 0.0,
+        modifierState = modifierState ?? {},
+        statusEffects = [];
 
   bool get isDead => hp <= 0;
   bool get reachedEnd => position >= 1.0;
-  double get hpFraction => hp / maxHp;
+  double get hpFraction => (hp / maxHp).clamp(0, 1);
+
+  /// Whether the enemy is currently invulnerable (phase modifier).
+  bool get isInvulnerable => modifierState['phase_invuln'] == true;
+
+  /// Remaining shield hits (shield modifier).
+  int get shieldHits => (modifierState['shield_hits'] as int?) ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +183,7 @@ class SanguinePool {
 }
 
 // ---------------------------------------------------------------------------
-// TdAffix — Mythic+ affixes that modify gameplay
+// TdHitEvent — visual hit event for rendering
 // ---------------------------------------------------------------------------
 
 /// A visual hit event emitted when a tower attacks an enemy.
@@ -171,6 +195,9 @@ class TdHitEvent {
   final double enemyX;
   final double damage;
   final bool isAoe;
+  final TowerArchetype archetype; // for per-archetype visual
+  final Color attackColor; // class-colored attack
+  final bool isCrit; // for crit visual
   double age; // seconds since creation
 
   TdHitEvent({
@@ -181,128 +208,40 @@ class TdHitEvent {
     required this.enemyX,
     required this.damage,
     this.isAoe = false,
+    this.archetype = TowerArchetype.melee,
+    this.attackColor = const Color(0xFFFFD700),
+    this.isCrit = false,
     this.age = 0,
   });
 
   /// How long the particle lives (seconds).
   static const double lifetime = 0.4;
   bool get isExpired => age >= lifetime;
+
   /// 0.0 → 1.0 progress through the animation.
   double get progress => (age / lifetime).clamp(0, 1);
 }
+
+// ---------------------------------------------------------------------------
+// TdAffix — Mythic+ affixes that modify gameplay
+// ---------------------------------------------------------------------------
 
 /// Mythic+ affixes that alter tower-defense gameplay.
 enum TdAffix { fortified, tyrannical, bolstering, bursting, sanguine }
 
 // ---------------------------------------------------------------------------
-// TdDungeon — dungeon definitions with themed enemy visuals
+// FireZone — fire_zone boss mechanic
 // ---------------------------------------------------------------------------
 
-/// A dungeon available for tower defense runs.
-class TdDungeon {
-  final String name;
-  final String shortName;
-  final Color enemyColor;
-  final Color bossColor;
-  final IconData enemyIcon;
-  final IconData bossIcon;
+/// A fire zone spawned by a boss ability. Damages towers in the lane until
+/// the timer expires.
+class FireZone {
+  final int laneIndex;
+  double timer;
 
-  const TdDungeon({
-    required this.name,
-    required this.shortName,
-    required this.enemyColor,
-    required this.bossColor,
-    required this.enemyIcon,
-    required this.bossIcon,
-  });
+  FireZone({required this.laneIndex, required this.timer});
 
-  /// Hand-themed dungeons we know about.
-  static const Map<String, TdDungeon> _known = {
-    'Stonevault': TdDungeon(name: 'Stonevault', shortName: 'SV',
-        enemyColor: Color(0xFF8B7355), bossColor: Color(0xFFFF8000),
-        enemyIcon: Icons.terrain_rounded, bossIcon: Icons.local_fire_department),
-    'City of Threads': TdDungeon(name: 'City of Threads', shortName: 'CoT',
-        enemyColor: Color(0xFF7B68EE), bossColor: Color(0xFFA335EE),
-        enemyIcon: Icons.bug_report_rounded, bossIcon: Icons.pest_control_rounded),
-    'The Dawnbreaker': TdDungeon(name: 'The Dawnbreaker', shortName: 'DB',
-        enemyColor: Color(0xFF4169E1), bossColor: Color(0xFF6A0DAD),
-        enemyIcon: Icons.dark_mode_rounded, bossIcon: Icons.auto_awesome_rounded),
-    'Ara-Kara, City of Echoes': TdDungeon(name: 'Ara-Kara', shortName: 'AK',
-        enemyColor: Color(0xFF2E8B57), bossColor: Color(0xFF006400),
-        enemyIcon: Icons.coronavirus_rounded, bossIcon: Icons.pest_control_rounded),
-    'Cinderbrew Meadery': TdDungeon(name: 'Cinderbrew Meadery', shortName: 'CM',
-        enemyColor: Color(0xFFCD853F), bossColor: Color(0xFFB22222),
-        enemyIcon: Icons.local_bar_rounded, bossIcon: Icons.whatshot_rounded),
-    'Darkflame Cleft': TdDungeon(name: 'Darkflame Cleft', shortName: 'DC',
-        enemyColor: Color(0xFFB22222), bossColor: Color(0xFFFF4500),
-        enemyIcon: Icons.whatshot_rounded, bossIcon: Icons.local_fire_department),
-    'The Rookery': TdDungeon(name: 'The Rookery', shortName: 'RK',
-        enemyColor: Color(0xFF4682B4), bossColor: Color(0xFF1E90FF),
-        enemyIcon: Icons.air_rounded, bossIcon: Icons.bolt_rounded),
-    'Priory of the Sacred Flame': TdDungeon(name: 'Priory of the Sacred Flame', shortName: 'PSF',
-        enemyColor: Color(0xFFDAA520), bossColor: Color(0xFFFFD700),
-        enemyIcon: Icons.shield_rounded, bossIcon: Icons.auto_awesome_rounded),
-    // Older / future dungeons
-    'Mists of Tirna Scithe': TdDungeon(name: 'Mists of Tirna Scithe', shortName: 'MTS',
-        enemyColor: Color(0xFF228B22), bossColor: Color(0xFF006400),
-        enemyIcon: Icons.forest_rounded, bossIcon: Icons.eco_rounded),
-    'The Necrotic Wake': TdDungeon(name: 'The Necrotic Wake', shortName: 'NW',
-        enemyColor: Color(0xFF708090), bossColor: Color(0xFF2F4F4F),
-        enemyIcon: Icons.dangerous_rounded, bossIcon: Icons.dangerous_rounded),
-    'Operation: Mechagon': TdDungeon(name: 'Operation: Mechagon', shortName: 'MECH',
-        enemyColor: Color(0xFFB0C4DE), bossColor: Color(0xFF4682B4),
-        enemyIcon: Icons.settings_rounded, bossIcon: Icons.precision_manufacturing_rounded),
-    'Theater of Pain': TdDungeon(name: 'Theater of Pain', shortName: 'TOP',
-        enemyColor: Color(0xFF8B0000), bossColor: Color(0xFFDC143C),
-        enemyIcon: Icons.sports_mma_rounded, bossIcon: Icons.local_fire_department),
-  };
-
-  /// Fallback icon/color palettes for unknown dungeons — picked by hash.
-  static const List<(Color, Color, IconData, IconData)> _palettes = [
-    (Color(0xFF6A5ACD), Color(0xFF483D8B), Icons.castle_rounded, Icons.auto_awesome_rounded),
-    (Color(0xFFCD5C5C), Color(0xFF8B0000), Icons.whatshot_rounded, Icons.local_fire_department),
-    (Color(0xFF20B2AA), Color(0xFF008B8B), Icons.water_rounded, Icons.waves_rounded),
-    (Color(0xFFDAA520), Color(0xFFB8860B), Icons.shield_rounded, Icons.bolt_rounded),
-    (Color(0xFF778899), Color(0xFF2F4F4F), Icons.terrain_rounded, Icons.dangerous_rounded),
-    (Color(0xFF9370DB), Color(0xFF6A0DAD), Icons.dark_mode_rounded, Icons.pest_control_rounded),
-  ];
-
-  /// Create a TdDungeon from a name. Uses hand-themed data if known,
-  /// otherwise generates consistent colors from the name hash.
-  static TdDungeon fromName(String name) {
-    // Check exact match first, then substring match for partial names
-    if (_known.containsKey(name)) return _known[name]!;
-    for (final entry in _known.entries) {
-      if (name.contains(entry.key) || entry.key.contains(name)) {
-        return entry.value;
-      }
-    }
-    // Generate from name hash
-    final hash = name.hashCode.abs();
-    final palette = _palettes[hash % _palettes.length];
-    final initials = name.split(' ')
-        .where((w) => w.isNotEmpty && w[0] == w[0].toUpperCase())
-        .map((w) => w[0])
-        .take(3)
-        .join();
-    return TdDungeon(
-      name: name,
-      shortName: initials.isEmpty ? name.substring(0, 2).toUpperCase() : initials,
-      enemyColor: palette.$1,
-      bossColor: palette.$2,
-      enemyIcon: palette.$3,
-      bossIcon: palette.$4,
-    );
-  }
-
-  /// Build dungeon list from API names, falling back to known list.
-  static List<TdDungeon> fromNames(List<String> names) {
-    if (names.isEmpty) return _known.values.toList();
-    return names.map((n) => fromName(n)).toList();
-  }
-
-  /// Fallback static list.
-  static List<TdDungeon> get fallbackList => _known.values.toList();
+  bool get isExpired => timer <= 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +252,7 @@ class TdDungeon {
 class KeystoneRun {
   final int level;
   final List<TdAffix> affixes;
-  final TdDungeon dungeon;
+  final TdDungeonDef dungeon;
 
   String get dungeonName => dungeon.name;
 
@@ -333,14 +272,14 @@ class KeystoneRun {
   bool get hasSanguine => affixes.contains(TdAffix.sanguine);
 
   /// Generates a random keystone run for the given [level] and [dungeon].
-  static KeystoneRun generate(int level, {TdDungeon? dungeon}) {
+  static KeystoneRun generate(int level, {required TdDungeonDef dungeon}) {
     final rng = Random();
     final allAffixes = List<TdAffix>.from(TdAffix.values)..shuffle(rng);
     final count = level >= 7 ? 2 : 1;
     return KeystoneRun(
       level: level,
       affixes: allAffixes.take(count).toList(),
-      dungeon: dungeon ?? TdDungeon.fallbackList[rng.nextInt(TdDungeon.fallbackList.length)],
+      dungeon: dungeon,
     );
   }
 }
