@@ -350,77 +350,78 @@ class _TdGameScreenState extends State<TdGameScreen>
               final laneWidth = constraints.maxWidth;
               final laneHeight = constraints.maxHeight;
 
-              return Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  // Goal line on the LEFT edge
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: 3,
-                    child: Container(
-                      color: const Color(0xFFFF0000).withValues(alpha: 0.30),
+              return SizedBox(
+                width: laneWidth,
+                height: laneHeight,
+                child: Stack(
+                  children: [
+                    // Goal line on the LEFT edge
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 3,
+                      child: Container(
+                        color: const Color(0xFFFF0000).withValues(alpha: 0.30),
+                      ),
                     ),
-                  ),
 
-                  // Fire zones (boss mechanic)
-                  ..._game.fireZones
-                      .where((z) => z.laneIndex == laneIndex)
-                      .map((zone) => Positioned(
-                        left: 0, right: 0,
-                        top: 0, bottom: 0,
+                    // Fire zones (boss mechanic)
+                    ..._game.fireZones
+                        .where((z) => z.laneIndex == laneIndex)
+                        .map((zone) => Positioned.fill(
+                              child: Container(
+                                color: const Color(0xFFFF4500).withValues(alpha: 0.1),
+                                child: Center(
+                                  child: Icon(
+                                    Icons.whatshot_rounded,
+                                    color: const Color(0xFFFF4500).withValues(alpha: 0.3),
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                            )),
+
+                    // Sanguine pools
+                    ..._game.sanguinePools
+                        .where((p) => p.laneIndex == laneIndex)
+                        .map((pool) {
+                      final poolLeft = (1.0 - pool.position) * (laneWidth - 60);
+                      return Positioned(
+                        left: poolLeft.clamp(0, laneWidth - 60),
+                        top: laneHeight * 0.25,
                         child: Container(
-                          color: const Color(0xFFFF4500).withValues(alpha: 0.1),
-                          child: Center(
-                            child: Icon(
-                              Icons.whatshot_rounded,
-                              color: const Color(0xFFFF4500).withValues(alpha: 0.3),
-                              size: 20,
+                          width: 60,
+                          height: laneHeight * 0.5,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF0000).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFFFF0000).withValues(alpha: 0.25),
                             ),
                           ),
                         ),
-                      )),
+                      );
+                    }),
 
-                  // Sanguine pools
-                  ..._game.sanguinePools
-                      .where((p) => p.laneIndex == laneIndex)
-                      .map((pool) {
-                    final poolLeft = (1.0 - pool.position) * (laneWidth - 60);
-                    return Positioned(
-                      left: poolLeft.clamp(0, laneWidth - 60),
-                      top: laneHeight * 0.25,
-                      child: Container(
-                        width: 60,
-                        height: laneHeight * 0.5,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF0000).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: const Color(0xFFFF0000).withValues(alpha: 0.25),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
+                    // Enemies
+                    ..._game.enemies
+                        .where((e) => e.laneIndex == laneIndex && e.position >= 0 && !e.isDead)
+                        .map((enemy) => _buildEnemy(enemy, laneWidth, laneHeight)),
 
-                  // Enemies
-                  ..._game.enemies
-                      .where((e) => e.laneIndex == laneIndex && e.position >= 0 && !e.isDead)
-                      .map((enemy) => _buildEnemy(enemy, laneWidth, laneHeight)),
+                    // Hit particles (projectiles + damage numbers)
+                    ..._game.hitEvents
+                        .where((h) => h.enemyLane == laneIndex)
+                        .map((hit) => _buildHitParticle(hit, laneWidth, laneHeight)),
 
-                  // Hit particles (projectiles + damage numbers)
-                  ..._game.hitEvents
-                      .where((h) => h.enemyLane == laneIndex)
-                      .map((hit) => _buildHitParticle(hit, laneWidth, laneHeight)),
+                    // Towers placed in this lane
+                    ..._buildLaneTowers(laneIndex, laneWidth, laneHeight),
 
-                  // Towers placed in this lane
-                  ..._buildLaneTowers(laneIndex, laneWidth, laneHeight),
-
-                  // Lane preview badge (setup/between waves only)
-                  if (_game.phase == TdGamePhase.setup || _game.phase == TdGamePhase.betweenWaves)
-                    _buildLanePreviewBadge(laneIndex),
-                ],
+                    // Lane preview badge (setup/between waves only)
+                    if (_game.phase == TdGamePhase.setup || _game.phase == TdGamePhase.betweenWaves)
+                      _buildLanePreviewBadge(laneIndex),
+                  ],
+                ),
               );
             },
           ),
