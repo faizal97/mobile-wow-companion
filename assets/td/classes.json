@@ -1,0 +1,171 @@
+{
+  "_version": 1,
+  "_fallback": {
+    "archetype": "ranged",
+    "passive": {
+      "name": "Basic Attack",
+      "description": "No special passive ability.",
+      "trigger": "passive",
+      "effects": []
+    },
+    "attackColor": "#8899AA"
+  },
+  "classes": {
+    "warrior": {
+      "archetype": "melee",
+      "passive": {
+        "name": "Cleave",
+        "description": "Attacks hit an additional nearby enemy.",
+        "trigger": "on_attack",
+        "effects": [
+          { "type": "extra_targets", "value": 1 }
+        ]
+      },
+      "attackColor": "#C69B6D"
+    },
+    "rogue": {
+      "archetype": "melee",
+      "passive": {
+        "name": "Ambush",
+        "description": "Every 4th attack deals triple damage.",
+        "trigger": "on_nth_attack",
+        "effects": [
+          { "type": "damage_multiplier", "nth": 4, "value": 3.0 }
+        ]
+      },
+      "attackColor": "#FFF468"
+    },
+    "death knight": {
+      "archetype": "melee",
+      "passive": {
+        "name": "Frost Fever",
+        "description": "Attacks slow enemies by 20% for 2 seconds.",
+        "trigger": "on_attack",
+        "effects": [
+          { "type": "slow_enemy", "value": 0.2, "duration": 2.0 }
+        ]
+      },
+      "attackColor": "#C41E3A"
+    },
+    "paladin": {
+      "archetype": "melee",
+      "passive": {
+        "name": "Divine Shield",
+        "description": "Immune to the Bursting affix.",
+        "trigger": "passive",
+        "effects": [
+          { "type": "immune_to_affix", "affix": "bursting" }
+        ]
+      },
+      "attackColor": "#F48CBA"
+    },
+    "monk": {
+      "archetype": "melee",
+      "passive": {
+        "name": "Flurry",
+        "description": "Attacks 60% faster than normal.",
+        "trigger": "passive",
+        "effects": [
+          { "type": "attack_speed_multiplier", "value": 0.625 }
+        ]
+      },
+      "attackColor": "#00FF98"
+    },
+    "demon hunter": {
+      "archetype": "melee",
+      "passive": {
+        "name": "Fel Rush",
+        "description": "Can attack enemies in an adjacent lane.",
+        "trigger": "passive",
+        "effects": [
+          { "type": "cross_lane_attack", "value": 1 }
+        ]
+      },
+      "attackColor": "#A330C9"
+    },
+    "mage": {
+      "archetype": "ranged",
+      "passive": {
+        "name": "Hot Streak",
+        "description": "25% chance to critically strike for double damage.",
+        "trigger": "on_attack",
+        "effects": [
+          { "type": "crit_chance", "chance": 0.25, "multiplier": 2.0 }
+        ]
+      },
+      "attackColor": "#3FC7EB"
+    },
+    "hunter": {
+      "archetype": "ranged",
+      "passive": {
+        "name": "Multi-Shot",
+        "description": "Attacks hit an additional nearby enemy.",
+        "trigger": "on_attack",
+        "effects": [
+          { "type": "extra_targets", "value": 1 }
+        ]
+      },
+      "attackColor": "#AAD372"
+    },
+    "warlock": {
+      "archetype": "ranged",
+      "passive": {
+        "name": "Corruption",
+        "description": "Attacks apply a damage-over-time effect dealing 30% damage over 3 seconds.",
+        "trigger": "on_attack",
+        "effects": [
+          { "type": "dot", "damageType": "percentDamage", "value": 0.3, "duration": 3.0, "ticks": 3 }
+        ]
+      },
+      "attackColor": "#8788EE"
+    },
+    "evoker": {
+      "archetype": "ranged",
+      "passive": {
+        "name": "Charged Blast",
+        "description": "Charges for 3 seconds then unleashes a blast for 4x damage.",
+        "trigger": "passive",
+        "effects": [
+          { "type": "charge_attack", "chargeTime": 3.0, "multiplier": 4.0 }
+        ]
+      },
+      "attackColor": "#33937F"
+    },
+    "priest": {
+      "archetype": "support",
+      "passive": {
+        "name": "Power Word: Fortitude",
+        "description": "Increases damage of adjacent towers by 30%.",
+        "trigger": "passive",
+        "effects": [
+          { "type": "buff_adjacent_damage", "value": 0.3 }
+        ]
+      },
+      "attackColor": "#E0E0E0"
+    },
+    "druid": {
+      "archetype": "support",
+      "passive": {
+        "name": "Nature's Swiftness",
+        "description": "Increases attack speed of adjacent towers by 25%.",
+        "trigger": "passive",
+        "effects": [
+          { "type": "buff_adjacent_speed", "value": 0.25 }
+        ]
+      },
+      "attackColor": "#FF7C0A"
+    },
+    "shaman": {
+      "archetype": "aoe",
+      "passive": {
+        "name": "Chain Lightning",
+        "description": "Attacks bounce to nearby enemies with diminishing damage.",
+        "trigger": "on_attack",
+        "effects": [
+          { "type": "chain_damage", "bounces": [1.0, 0.7, 0.5] }
+        ]
+      },
+      "attackColor": "#0070DD"
+    }
+  }
+}
