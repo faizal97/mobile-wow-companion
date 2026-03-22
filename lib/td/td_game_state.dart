@@ -48,8 +48,8 @@ class TdGameState extends ChangeNotifier {
   // -----------------------------------------------------------------------
 
   /// Initialise a new run with the selected characters and keystone level.
-  void startRun(List<WowCharacter> selectedCharacters, int keystoneLevel) {
-    keystone = KeystoneRun.generate(keystoneLevel);
+  void startRun(List<WowCharacter> selectedCharacters, int keystoneLevel, {TdDungeon? dungeon}) {
+    keystone = KeystoneRun.generate(keystoneLevel, dungeon: dungeon);
 
     towers = List.generate(selectedCharacters.length, (i) {
       return TdTower(

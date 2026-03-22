@@ -19,8 +19,11 @@ class TdMenuScreen extends StatefulWidget {
 class _TdMenuScreenState extends State<TdMenuScreen>
     with SingleTickerProviderStateMixin {
   int _keystoneLevel = 2;
+  int _selectedDungeonIndex = 0;
   final Set<int> _selectedCharacterIds = {};
   late AnimationController _glowController;
+
+  TdDungeon get _selectedDungeon => TdDungeon.all[_selectedDungeonIndex];
 
   @override
   void initState() {
@@ -58,6 +61,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
         builder: (_) => TdGameScreen(
           characters: selected,
           keystoneLevel: _keystoneLevel,
+          dungeon: _selectedDungeon,
         ),
       ),
     );
@@ -147,6 +151,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
   }
 
   Widget _buildDungeonHeader() {
+    final dungeon = _selectedDungeon;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.only(
@@ -174,37 +179,66 @@ class _TdMenuScreenState extends State<TdMenuScreen>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: const Color(0xFFA335EE).withValues(alpha: 0.4),
+                color: dungeon.bossColor.withValues(alpha: 0.4),
                 width: 2,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFA335EE).withValues(alpha: 0.15),
+                  color: dungeon.bossColor.withValues(alpha: 0.15),
                   blurRadius: 24,
                   spreadRadius: 4,
                 ),
               ],
             ),
             child: Icon(
-              Icons.castle_rounded,
-              color: const Color(0xFFA335EE).withValues(alpha: 0.9),
+              dungeon.bossIcon,
+              color: dungeon.bossColor.withValues(alpha: 0.9),
               size: 30,
             ),
           ),
           const SizedBox(height: 16),
-          Text(
-            'STONEVAULT',
-            style: GoogleFonts.rajdhani(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textPrimary,
-              letterSpacing: 4,
-              height: 1.0,
-            ),
+          // Tappable dungeon name with arrows
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => setState(() {
+                  _selectedDungeonIndex =
+                      (_selectedDungeonIndex - 1 + TdDungeon.all.length) %
+                          TdDungeon.all.length;
+                }),
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.chevron_left_rounded,
+                      color: AppTheme.textTertiary, size: 28),
+                ),
+              ),
+              Text(
+                dungeon.name.toUpperCase(),
+                style: GoogleFonts.rajdhani(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
+                  letterSpacing: 3,
+                  height: 1.0,
+                ),
+              ),
+              GestureDetector(
+                onTap: () => setState(() {
+                  _selectedDungeonIndex =
+                      (_selectedDungeonIndex + 1) % TdDungeon.all.length;
+                }),
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.chevron_right_rounded,
+                      color: AppTheme.textTertiary, size: 28),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           Text(
-            'Mythic Keystone Dungeon',
+            'Mythic Keystone Dungeon · ${_selectedDungeonIndex + 1}/${TdDungeon.all.length}',
             style: GoogleFonts.inter(
               fontSize: 13,
               fontWeight: FontWeight.w400,

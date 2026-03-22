@@ -181,6 +181,101 @@ class TdHitEvent {
 enum TdAffix { fortified, tyrannical, bolstering, bursting, sanguine }
 
 // ---------------------------------------------------------------------------
+// TdDungeon — dungeon definitions with themed enemy visuals
+// ---------------------------------------------------------------------------
+
+/// A dungeon available for tower defense runs.
+class TdDungeon {
+  final String name;
+  final String shortName;
+  final Color enemyColor;
+  final Color bossColor;
+  final IconData enemyIcon;
+  final IconData bossIcon;
+
+  const TdDungeon({
+    required this.name,
+    required this.shortName,
+    required this.enemyColor,
+    required this.bossColor,
+    required this.enemyIcon,
+    required this.bossIcon,
+  });
+
+  static const List<TdDungeon> all = [
+    TdDungeon(
+      name: 'Stonevault',
+      shortName: 'SV',
+      enemyColor: Color(0xFF8B7355), // earthy brown — kobolds/earthen
+      bossColor: Color(0xFFFF8000),
+      enemyIcon: Icons.terrain_rounded,
+      bossIcon: Icons.local_fire_department,
+    ),
+    TdDungeon(
+      name: 'City of Threads',
+      shortName: 'CoT',
+      enemyColor: Color(0xFF7B68EE), // nerubian purple
+      bossColor: Color(0xFFA335EE),
+      enemyIcon: Icons.bug_report_rounded,
+      bossIcon: Icons.pest_control_rounded,
+    ),
+    TdDungeon(
+      name: 'The Dawnbreaker',
+      shortName: 'DB',
+      enemyColor: Color(0xFF4169E1), // void blue
+      bossColor: Color(0xFF6A0DAD),
+      enemyIcon: Icons.dark_mode_rounded,
+      bossIcon: Icons.auto_awesome_rounded,
+    ),
+    TdDungeon(
+      name: 'Ara-Kara',
+      shortName: 'AK',
+      enemyColor: Color(0xFF2E8B57), // swamp green — spiders
+      bossColor: Color(0xFF006400),
+      enemyIcon: Icons.coronavirus_rounded,
+      bossIcon: Icons.pest_control_rounded,
+    ),
+    TdDungeon(
+      name: 'Cinderbrew Meadery',
+      shortName: 'CM',
+      enemyColor: Color(0xFFCD853F), // amber brew
+      bossColor: Color(0xFFB22222),
+      enemyIcon: Icons.local_bar_rounded,
+      bossIcon: Icons.whatshot_rounded,
+    ),
+    TdDungeon(
+      name: 'Darkflame Cleft',
+      shortName: 'DC',
+      enemyColor: Color(0xFFB22222), // dark flame red
+      bossColor: Color(0xFFFF4500),
+      enemyIcon: Icons.whatshot_rounded,
+      bossIcon: Icons.local_fire_department,
+    ),
+    TdDungeon(
+      name: 'The Rookery',
+      shortName: 'RK',
+      enemyColor: Color(0xFF4682B4), // storm blue — stormriders
+      bossColor: Color(0xFF1E90FF),
+      enemyIcon: Icons.air_rounded,
+      bossIcon: Icons.bolt_rounded,
+    ),
+    TdDungeon(
+      name: 'Priory of the Sacred Flame',
+      shortName: 'PSF',
+      enemyColor: Color(0xFFDAA520), // holy gold — zealots
+      bossColor: Color(0xFFFFD700),
+      enemyIcon: Icons.shield_rounded,
+      bossIcon: Icons.auto_awesome_rounded,
+    ),
+  ];
+
+  /// Pick a random dungeon.
+  static TdDungeon random() {
+    return all[Random().nextInt(all.length)];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // KeystoneRun — configuration for a single run
 // ---------------------------------------------------------------------------
 
@@ -188,12 +283,14 @@ enum TdAffix { fortified, tyrannical, bolstering, bursting, sanguine }
 class KeystoneRun {
   final int level;
   final List<TdAffix> affixes;
-  final String dungeonName;
+  final TdDungeon dungeon;
+
+  String get dungeonName => dungeon.name;
 
   const KeystoneRun({
     required this.level,
     required this.affixes,
-    this.dungeonName = 'Stonevault',
+    required this.dungeon,
   });
 
   /// Enemy HP multiplier based on keystone level (scales from level 2+).
@@ -205,15 +302,15 @@ class KeystoneRun {
   bool get hasBursting => affixes.contains(TdAffix.bursting);
   bool get hasSanguine => affixes.contains(TdAffix.sanguine);
 
-  /// Generates a random keystone run for the given [level].
-  /// Levels below 7 get 1 affix; levels 7+ get 2.
-  static KeystoneRun generate(int level) {
+  /// Generates a random keystone run for the given [level] and [dungeon].
+  static KeystoneRun generate(int level, {TdDungeon? dungeon}) {
     final rng = Random();
     final allAffixes = List<TdAffix>.from(TdAffix.values)..shuffle(rng);
     final count = level >= 7 ? 2 : 1;
     return KeystoneRun(
       level: level,
       affixes: allAffixes.take(count).toList(),
+      dungeon: dungeon ?? TdDungeon.random(),
     );
   }
 }

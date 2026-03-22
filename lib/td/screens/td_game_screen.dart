@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -17,11 +15,13 @@ import '../td_game_state.dart';
 class TdGameScreen extends StatefulWidget {
   final List<WowCharacter> characters;
   final int keystoneLevel;
+  final TdDungeon? dungeon;
 
   const TdGameScreen({
     super.key,
     required this.characters,
     required this.keystoneLevel,
+    this.dungeon,
   });
 
   @override
@@ -33,7 +33,6 @@ class _TdGameScreenState extends State<TdGameScreen>
   late final TdGameState _game;
   late final Ticker _ticker;
   Duration _lastElapsed = Duration.zero;
-  Timer? _autoResumeTimer;
 
   // Track which lane is being hovered during a drag.
   int? _dragHoverLane;
@@ -42,7 +41,7 @@ class _TdGameScreenState extends State<TdGameScreen>
   void initState() {
     super.initState();
     _game = TdGameState();
-    _game.startRun(widget.characters, widget.keystoneLevel);
+    _game.startRun(widget.characters, widget.keystoneLevel, dungeon: widget.dungeon);
     _game.addListener(_onGameStateChanged);
     // Don't auto-start — let the player position towers first
     _ticker = createTicker(_onTick);
@@ -50,7 +49,6 @@ class _TdGameScreenState extends State<TdGameScreen>
 
   @override
   void dispose() {
-    _autoResumeTimer?.cancel();
     _ticker.dispose();
     _game.removeListener(_onGameStateChanged);
     _game.dispose();
@@ -72,14 +70,6 @@ class _TdGameScreenState extends State<TdGameScreen>
   void _onGameStateChanged() {
     switch (_game.phase) {
       case TdGamePhase.betweenWaves:
-        _ticker.stop();
-        _autoResumeTimer?.cancel();
-        _autoResumeTimer = Timer(const Duration(seconds: 3), () {
-          if (mounted && _game.phase == TdGamePhase.betweenWaves) {
-            _startNextWave();
-          }
-        });
-        break;
       case TdGamePhase.victory:
       case TdGamePhase.defeat:
         _ticker.stop();
@@ -91,7 +81,6 @@ class _TdGameScreenState extends State<TdGameScreen>
   }
 
   void _startNextWave() {
-    _autoResumeTimer?.cancel();
     _game.nextWave();
     _lastElapsed = Duration.zero;
     _ticker.stop();
@@ -414,23 +403,21 @@ class _TdGameScreenState extends State<TdGameScreen>
   // -----------------------------------------------------------------------
 
   Widget _buildEnemy(TdEnemy enemy, double laneWidth, double laneHeight) {
-    // Enemies spawn RIGHT (position ~0), move LEFT (position -> 1.0).
     final size = enemy.isBoss ? 36.0 : 24.0;
     final left = ((1.0 - enemy.position) * (laneWidth - size)).clamp(0.0, laneWidth - size);
     final top = (laneHeight - size) / 2;
 
-    // Check if this enemy is being hit right now (any fresh hit events targeting it)
+    final dungeon = _game.keystone.dungeon;
     final isBeingHit = _game.hitEvents.any(
       (h) => h.enemyId == enemy.id && h.progress > 0.5 && h.progress < 0.9,
     );
 
-    final hpBarColor = enemy.isBoss ? const Color(0xFFFF8000) : const Color(0xFFFF5E5B);
+    final baseColor = enemy.isBoss ? dungeon.bossColor : dungeon.enemyColor;
+    final hpBarColor = baseColor;
     final enemyFill = isBeingHit
-        ? Colors.white.withValues(alpha: 0.9) // flash white on hit
-        : enemy.isBoss
-            ? const Color(0xFFFF8000).withValues(alpha: 0.70)
-            : const Color(0xFFFF5E5B).withValues(alpha: 0.70);
-    final enemyBorder = enemy.isBoss ? const Color(0xFFFF8000) : const Color(0xFFFF5E5B);
+        ? Colors.white.withValues(alpha: 0.9)
+        : baseColor.withValues(alpha: 0.70);
+    final enemyBorder = baseColor;
 
     return Positioned(
       left: left,
@@ -482,11 +469,13 @@ class _TdGameScreenState extends State<TdGameScreen>
                     ]
                   : null,
             ),
-            child: enemy.isBoss
-                ? const Center(
-                    child: Icon(Icons.local_fire_department, color: Colors.white, size: 18),
-                  )
-                : null,
+            child: Center(
+              child: Icon(
+                enemy.isBoss ? dungeon.bossIcon : dungeon.enemyIcon,
+                color: Colors.white,
+                size: enemy.isBoss ? 18 : 14,
+              ),
+            ),
           ),
         ],
       ),
@@ -1069,6 +1058,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                           builder: (_) => TdGameScreen(
                             characters: widget.characters,
                             keystoneLevel: widget.keystoneLevel + 1,
+                            dungeon: widget.dungeon,
                           ),
                         ),
                       );
