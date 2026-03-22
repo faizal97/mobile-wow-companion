@@ -464,19 +464,20 @@ class TdDungeonBriefingScreen extends StatelessWidget {
       case 'spread':
         return [0.33, 0.33, 0.33];
       case 'heavy_center':
-        return [0.2, 0.6, 0.2];
+        final w = (dungeon.lanePattern.params['centerWeight'] as num?)?.toDouble() ?? 0.6;
+        return [(1 - w) / 2, w, (1 - w) / 2];
       case 'sequential':
-        return [0.33, 0.33, 0.33];
+        return [0.8, 0.5, 0.2]; // wave pattern: L1 first, L3 last
       case 'zerg':
-        return [0.33, 0.33, 0.33];
+        return [0.9, 0.9, 0.9]; // all lanes hit hard
       case 'packs':
-        return [0.33, 0.33, 0.33];
+        return [0.7, 0.2, 0.1]; // one lane at a time, rotating
       case 'weakest_lane':
-        return [0.5, 0.2, 0.3]; // varies, show approximate
+        return [0.6, 0.2, 0.4]; // targets your weak spots
       case 'drift':
-        return [0.33, 0.33, 0.33];
+        return [0.4, 0.3, 0.5]; // unpredictable, uneven
       case 'lane_switch':
-        return [0.33, 0.33, 0.33];
+        return [0.35, 0.45, 0.35]; // start random, switch mid-path
       default:
         return [0.33, 0.33, 0.33];
     }

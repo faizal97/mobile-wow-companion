@@ -220,7 +220,7 @@ class EnemyEffectProcessor {
         case 'spectral':
           // Reduced damage until position threshold
           final reduction =
-              (mod.params['damageReduction'] as num?)?.toDouble() ?? 0.5;
+              (mod.params['damageReduction'] as num? ?? mod.params['dmgReduction'] as num?)?.toDouble() ?? 0.5;
           final threshold =
               (mod.params['untilPosition'] as num?)?.toDouble() ?? 0.5;
           if (position < threshold) {

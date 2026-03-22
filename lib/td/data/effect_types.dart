@@ -136,7 +136,7 @@ class TdClassDef {
       passive: json['passive'] != null
           ? PassiveDef.fromJson(Map<String, dynamic>.from(json['passive'] as Map))
           : const PassiveDef(name: 'None'),
-      attackColor: _parseColor(json['attack_color'] as String?),
+      attackColor: _parseColor((json['attackColor'] ?? json['attack_color']) as String?),
     );
   }
 
@@ -212,20 +212,20 @@ class TdDungeonDef {
     return TdDungeonDef(
       key: key,
       name: json['name'] as String? ?? key,
-      shortName: json['short_name'] as String? ?? '',
+      shortName: (json['shortName'] ?? json['short_name']) as String? ?? '',
       theme: json['theme'] as String? ?? '',
-      enemyColor: _parseColor(json['enemy_color'] as String?),
-      bossColor: _parseColor(json['boss_color'] as String?),
-      enemyIcon: json['enemy_icon'] as String? ?? 'skull',
-      bossIcon: json['boss_icon'] as String? ?? 'skull',
-      hpMultiplier: (json['hp_multiplier'] as num?)?.toDouble() ?? 1.0,
-      speedMultiplier: (json['speed_multiplier'] as num?)?.toDouble() ?? 1.0,
-      enemyCountModifier: (json['enemy_count_modifier'] as num?)?.toInt() ?? 0,
-      lanePattern: json['lane_pattern'] != null
-          ? LanePatternDef.fromJson(Map<String, dynamic>.from(json['lane_pattern'] as Map))
+      enemyColor: _parseColor((json['enemyColor'] ?? json['enemy_color']) as String?),
+      bossColor: _parseColor((json['bossColor'] ?? json['boss_color']) as String?),
+      enemyIcon: (json['enemyIcon'] ?? json['enemy_icon']) as String? ?? 'skull',
+      bossIcon: (json['bossIcon'] ?? json['boss_icon']) as String? ?? 'skull',
+      hpMultiplier: ((json['hpMultiplier'] ?? json['hp_multiplier']) as num?)?.toDouble() ?? 1.0,
+      speedMultiplier: ((json['speedMultiplier'] ?? json['speed_multiplier']) as num?)?.toDouble() ?? 1.0,
+      enemyCountModifier: ((json['enemyCountModifier'] ?? json['enemy_count_modifier']) as num?)?.toInt() ?? 0,
+      lanePattern: (json['lanePattern'] ?? json['lane_pattern']) != null
+          ? LanePatternDef.fromJson(Map<String, dynamic>.from((json['lanePattern'] ?? json['lane_pattern']) as Map))
           : const LanePatternDef(type: 'spread'),
-      enemyModifiers: _parseEffectList(json['enemy_modifiers']),
-      bossModifiers: _parseEffectList(json['boss_modifiers']),
+      enemyModifiers: _parseEffectList(json['enemyModifiers'] ?? json['enemy_modifiers']),
+      bossModifiers: _parseEffectList(json['bossModifiers'] ?? json['boss_modifiers']),
     );
   }
 
@@ -253,7 +253,7 @@ class TdRotationDef {
     return TdRotationDef(
       version: (json['version'] as num?)?.toInt() ?? 1,
       season: json['season'] as String? ?? '',
-      dungeonKeys: (json['dungeon_keys'] as List<dynamic>?)
+      dungeonKeys: ((json['dungeons'] ?? json['dungeon_keys']) as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           const [],
