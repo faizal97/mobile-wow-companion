@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -539,11 +540,17 @@ class _CharacterPickerCard extends StatelessWidget {
                     : classColor.withValues(alpha: 0.3),
               ),
 
+              // Avatar
+              Padding(
+                padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+                child: _buildAvatar(classColor),
+              ),
+
               // Content
               Expanded(
                 child: Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   child: Row(
                     children: [
                       // Name and class info
@@ -654,6 +661,49 @@ class _CharacterPickerCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(Color classColor) {
+    return SizedBox(
+      width: 42,
+      height: 42,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: character.avatarUrl != null
+            ? CachedNetworkImage(
+                imageUrl: character.avatarUrl!,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => _avatarFallback(classColor),
+                errorWidget: (_, __, ___) => _avatarFallback(classColor),
+              )
+            : _avatarFallback(classColor),
+      ),
+    );
+  }
+
+  Widget _avatarFallback(Color classColor) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: classColor.withValues(alpha: 0.15),
+        border: Border.all(
+          color: classColor.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          character.name.isNotEmpty ? character.name[0].toUpperCase() : '?',
+          style: GoogleFonts.rajdhani(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: classColor,
           ),
         ),
       ),

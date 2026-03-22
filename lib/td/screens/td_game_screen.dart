@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -505,7 +506,6 @@ class _TdGameScreenState extends State<TdGameScreen>
       height: 40,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: towerColor.withValues(alpha: 0.15),
         border: Border.all(
           color: towerColor.withValues(alpha: isDragging ? 0.90 : 0.50),
           width: 2,
@@ -520,6 +520,26 @@ class _TdGameScreenState extends State<TdGameScreen>
               ]
             : null,
       ),
+      child: ClipOval(
+        child: tower.character.avatarUrl != null
+            ? CachedNetworkImage(
+                imageUrl: tower.character.avatarUrl!,
+                fit: BoxFit.cover,
+                width: 40,
+                height: 40,
+                placeholder: (_, __) => _towerFallback(tower, towerColor),
+                errorWidget: (_, __, ___) => _towerFallback(tower, towerColor),
+              )
+            : _towerFallback(tower, towerColor),
+      ),
+    );
+  }
+
+  Widget _towerFallback(TdTower tower, Color towerColor) {
+    return Container(
+      width: 40,
+      height: 40,
+      color: towerColor.withValues(alpha: 0.15),
       child: Center(
         child: Text(
           tower.character.name.isNotEmpty ? tower.character.name[0].toUpperCase() : '?',
@@ -554,23 +574,22 @@ class _TdGameScreenState extends State<TdGameScreen>
                   height: 28,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: towerColor.withValues(alpha: 0.15),
                     border: Border.all(
                       color: towerColor.withValues(alpha: 0.50),
                       width: 1.5,
                     ),
                   ),
-                  child: Center(
-                    child: Text(
-                      tower.character.name.isNotEmpty
-                          ? tower.character.name[0].toUpperCase()
-                          : '?',
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: towerColor,
-                      ),
-                    ),
+                  child: ClipOval(
+                    child: tower.character.avatarUrl != null
+                        ? CachedNetworkImage(
+                            imageUrl: tower.character.avatarUrl!,
+                            fit: BoxFit.cover,
+                            width: 28,
+                            height: 28,
+                            placeholder: (_, __) => _infoBarFallback(tower, towerColor),
+                            errorWidget: (_, __, ___) => _infoBarFallback(tower, towerColor),
+                          )
+                        : _infoBarFallback(tower, towerColor),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -596,6 +615,24 @@ class _TdGameScreenState extends State<TdGameScreen>
             ),
           );
         }).toList(),
+      ),
+    );
+  }
+
+  Widget _infoBarFallback(TdTower tower, Color towerColor) {
+    return Container(
+      width: 28,
+      height: 28,
+      color: towerColor.withValues(alpha: 0.15),
+      child: Center(
+        child: Text(
+          tower.character.name.isNotEmpty ? tower.character.name[0].toUpperCase() : '?',
+          style: GoogleFonts.rajdhani(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: towerColor,
+          ),
+        ),
       ),
     );
   }
