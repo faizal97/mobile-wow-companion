@@ -300,6 +300,7 @@ class _TdGameScreenState extends State<TdGameScreen>
 
   Widget _buildLanes() {
     return Stack(
+      fit: StackFit.expand,
       children: [
         Column(
           children: List.generate(3, (lane) {
