@@ -19,7 +19,8 @@ import 'td_game_screen.dart';
 import 'td_upgrade_screen.dart';
 
 class TdMenuScreen extends StatefulWidget {
-  const TdMenuScreen({super.key});
+  final List<WowCharacter>? heroes;
+  const TdMenuScreen({super.key, this.heroes});
 
   @override
   State<TdMenuScreen> createState() => _TdMenuScreenState();
@@ -34,9 +35,15 @@ class _TdMenuScreenState extends State<TdMenuScreen>
   List<TdDungeonDef> _dungeons = [];
   bool _dataLoading = true;
 
+  bool _useHeroes = false; // false = warband, true = legendary heroes
+  bool _rosterLocked = false; // locked after INSERT KEYSTONE
+
   @override
   void initState() {
     super.initState();
+    if (widget.heroes != null) {
+      _useHeroes = true;
+    }
     _glowController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
@@ -71,11 +78,21 @@ class _TdMenuScreenState extends State<TdMenuScreen>
     super.dispose();
   }
 
+  bool get _isGuestMode => widget.heroes != null;
+
+  List<WowCharacter> _getActiveRoster(List<WowCharacter> warbandCharacters) {
+    if (widget.heroes != null) return widget.heroes!;
+    return _useHeroes ? WowCharacter.legendaryHeroes() : warbandCharacters;
+  }
+
   bool get _canStart => !_dataLoading;
 
   void _startRun(List<WowCharacter> allCharacters) {
+    setState(() => _rosterLocked = true);
     final runState = TdRunState();
-    _navigateToKey(allCharacters, runState);
+    _navigateToKey(allCharacters, runState).then((_) {
+      if (mounted) setState(() => _rosterLocked = false);
+    });
   }
 
   Future<void> _navigateToKey(
@@ -188,7 +205,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
       backgroundColor: AppTheme.background,
       body: Consumer<CharacterProvider>(
         builder: (context, provider, _) {
-          final characters = provider.characters;
+          final characters = _getActiveRoster(provider.characters);
           return Stack(
             children: [
               // Main scrollable content
@@ -196,6 +213,9 @@ class _TdMenuScreenState extends State<TdMenuScreen>
                 slivers: [
                   // Dungeon header
                   SliverToBoxAdapter(child: _buildDungeonHeader()),
+
+                  // Roster source tab (only when logged in)
+                  SliverToBoxAdapter(child: _buildRosterTab()),
 
                   // Roster section header
                   SliverToBoxAdapter(child: _buildRosterSectionHeader(characters.length)),
@@ -361,7 +381,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
       child: Row(
         children: [
           Text(
-            'YOUR ROSTER',
+            _useHeroes ? 'LEGENDARY HEROES' : 'YOUR ROSTER',
             style: GoogleFonts.inter(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -399,6 +419,67 @@ class _TdMenuScreenState extends State<TdMenuScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRosterTab() {
+    if (_isGuestMode) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.surfaceBorder),
+        ),
+        padding: const EdgeInsets.all(3),
+        child: Row(
+          children: [
+            _buildTabButton('YOUR WARBAND', !_useHeroes),
+            _buildTabButton('LEGENDARY HEROES', _useHeroes),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabButton(String label, bool isActive) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: _rosterLocked
+            ? null
+            : () => setState(() {
+                  _useHeroes = label == 'LEGENDARY HEROES';
+                }),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isActive
+                ? const Color(0xFFA335EE).withValues(alpha: 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: isActive
+                ? Border.all(
+                    color: const Color(0xFFA335EE).withValues(alpha: 0.4))
+                : null,
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isActive
+                    ? const Color(0xFFA335EE)
+                    : AppTheme.textTertiary,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
