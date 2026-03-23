@@ -276,20 +276,31 @@ class _TdUpgradeScreenState extends State<TdUpgradeScreen>
                 ),
                 child: ClipOval(
                   child: character.avatarUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: character.avatarUrl!,
-                          width: 38,
-                          height: 38,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => Container(
-                            color: classColor.withValues(alpha: 0.2),
-                            child: Icon(Icons.person, color: classColor, size: 20),
-                          ),
-                          errorWidget: (_, __, ___) => Container(
-                            color: classColor.withValues(alpha: 0.2),
-                            child: Icon(Icons.person, color: classColor, size: 20),
-                          ),
-                        )
+                      ? (character.avatarUrl!.startsWith('asset:')
+                          ? Image.asset(
+                              character.avatarUrl!.substring(6),
+                              width: 38,
+                              height: 38,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: classColor.withValues(alpha: 0.2),
+                                child: Icon(Icons.person, color: classColor, size: 20),
+                              ),
+                            )
+                          : CachedNetworkImage(
+                              imageUrl: character.avatarUrl!,
+                              width: 38,
+                              height: 38,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => Container(
+                                color: classColor.withValues(alpha: 0.2),
+                                child: Icon(Icons.person, color: classColor, size: 20),
+                              ),
+                              errorWidget: (_, __, ___) => Container(
+                                color: classColor.withValues(alpha: 0.2),
+                                child: Icon(Icons.person, color: classColor, size: 20),
+                              ),
+                            ))
                       : Container(
                           color: classColor.withValues(alpha: 0.2),
                           child: Icon(Icons.person, color: classColor, size: 20),
