@@ -54,12 +54,33 @@ class TdDungeonBriefingScreen extends StatelessWidget {
         ),
         centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+      body: Stack(
         children: [
-          // Section 1: Header
-          _buildHeader(),
-          const SizedBox(height: 24),
+          // Full-screen dungeon background
+          if (dungeon.backgroundImage != null) ...[
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.15,
+                child: Image.asset(
+                  dungeon.backgroundImage!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.3),
+              ),
+            ),
+          ],
+          // Scrollable content
+          ListView(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+            children: [
+              // Section 1: Header
+              _buildHeaderCompact(),
+              const SizedBox(height: 24),
 
           // Section 2: Enemy Intel
           _buildSectionHeader('ENEMY INTEL', Icons.groups_rounded),
@@ -84,143 +105,77 @@ class TdDungeonBriefingScreen extends StatelessWidget {
           // Section 5: Strategy Tips
           _buildSectionHeader('STRATEGY TIPS', Icons.lightbulb_outline_rounded),
           const SizedBox(height: 12),
-          _buildStrategyTips(),
+              _buildStrategyTips(),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Section 1: Header
-  // -------------------------------------------------------------------------
-
-  Widget _buildHeader() {
+  Widget _buildHeaderCompact() {
     return Column(
       children: [
-        // Hero background image
-        if (dungeon.backgroundImage != null)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                AspectRatio(
-                  aspectRatio: 16 / 9,
+        // Dungeon icon
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: dungeon.bossColor.withValues(alpha: 0.4),
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: dungeon.bossColor.withValues(alpha: 0.15),
+                blurRadius: 20,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: dungeon.bossImage != null
+              ? ClipOval(
                   child: Image.asset(
-                    dungeon.backgroundImage!,
+                    dungeon.bossImage!,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
-                ),
-                // Dark gradient overlay (bottom-heavy for text)
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.2),
-                          Colors.black.withValues(alpha: 0.6),
-                        ],
-                      ),
+                    errorBuilder: (_, __, ___) => Icon(
+                      TdIcons.getIcon(dungeon.bossIcon),
+                      color: dungeon.bossColor.withValues(alpha: 0.9),
+                      size: 26,
                     ),
                   ),
+                )
+              : Icon(
+                  TdIcons.getIcon(dungeon.bossIcon),
+                  color: dungeon.bossColor.withValues(alpha: 0.9),
+                  size: 26,
                 ),
-                // Dungeon name overlay on image
-                Positioned(
-                  bottom: 16,
-                  left: 16,
-                  right: 16,
-                  child: Column(
-                    children: [
-                      Text(
-                        dungeon.name.toUpperCase(),
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 3,
-                          shadows: [
-                            Shadow(
-                              color: Colors.black.withValues(alpha: 0.7),
-                              blurRadius: 8,
-                            ),
-                          ],
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      if (dungeon.theme.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          dungeon.theme,
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                            fontStyle: FontStyle.italic,
-                            color: Colors.white.withValues(alpha: 0.7),
-                            height: 1.4,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          dungeon.name.toUpperCase(),
+          style: GoogleFonts.rajdhani(
+            fontSize: 26,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.textPrimary,
+            letterSpacing: 3,
           ),
-        // Fallback header when no background image
-        if (dungeon.backgroundImage == null) ...[
-          // Dungeon icon
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: dungeon.bossColor.withValues(alpha: 0.4),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: dungeon.bossColor.withValues(alpha: 0.15),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Icon(
-              TdIcons.getIcon(dungeon.bossIcon),
-              color: dungeon.bossColor.withValues(alpha: 0.9),
-              size: 26,
-            ),
-          ),
-          const SizedBox(height: 14),
+          textAlign: TextAlign.center,
+        ),
+        if (dungeon.theme.isNotEmpty) ...[
+          const SizedBox(height: 6),
           Text(
-            dungeon.name.toUpperCase(),
-            style: GoogleFonts.rajdhani(
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textPrimary,
-              letterSpacing: 3,
+            dungeon.theme,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+              fontStyle: FontStyle.italic,
+              color: dungeon.bossColor.withValues(alpha: 0.6),
+              height: 1.4,
             ),
             textAlign: TextAlign.center,
           ),
-          if (dungeon.theme.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              dungeon.theme,
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                fontStyle: FontStyle.italic,
-                color: dungeon.bossColor.withValues(alpha: 0.6),
-                height: 1.4,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
         ],
       ],
     );
