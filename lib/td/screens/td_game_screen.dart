@@ -213,6 +213,7 @@ class _TdGameScreenState extends State<TdGameScreen>
               ],
             ),
             if (_showVolumeSlider) _buildVolumeSliderOverlay(),
+            if (_isTargeting) _buildTargetingOverlay(),
           ],
         ),
       ),
@@ -1411,72 +1412,410 @@ class _TdGameScreenState extends State<TdGameScreen>
   // 6. Tower info bar
   // -----------------------------------------------------------------------
 
-  /// Cast an ability with auto-targeting (picks best target heuristically).
+  // ---- Targeting mode state ----
+  bool _isTargeting = false;
+  int _targetingTowerIndex = -1;
+  bool _targetingIsUltimate = false;
+  String _targetingType = ''; // "enemy", "lane", "tower"
+
+  void _enterTargetingMode(int towerIndex, bool isUltimate) {
+    final tower = _game.towers[towerIndex];
+    final ability = isUltimate ? tower.ultimateAbility : tower.activeAbility;
+    if (ability == null || ability.isInstant) return;
+
+    // Pause the game
+    _ticker.stop();
+
+    setState(() {
+      _isTargeting = true;
+      _targetingTowerIndex = towerIndex;
+      _targetingIsUltimate = isUltimate;
+      _targetingType = ability.targeting;
+    });
+  }
+
+  void _cancelTargeting() {
+    setState(() {
+      _isTargeting = false;
+      _targetingTowerIndex = -1;
+      _targetingType = '';
+    });
+    // Resume the game
+    _lastElapsed = Duration.zero;
+    _ticker.stop();
+    _ticker.start();
+  }
+
+  void _confirmTarget({String? enemyId, int? lane, int? towerIdx}) {
+    if (_targetingIsUltimate) {
+      _game.castUltimate(_targetingTowerIndex,
+          targetEnemyId: enemyId, targetLane: lane, targetTowerIndex: towerIdx);
+    } else {
+      _game.castActiveAbility(_targetingTowerIndex,
+          targetEnemyId: enemyId, targetLane: lane, targetTowerIndex: towerIdx);
+    }
+    _cancelTargeting();
+  }
+
+  /// Cast an ability — enters targeting mode for targeted abilities,
+  /// auto-casts for instant abilities.
   void _castWithAutoTarget(int towerIndex, bool isUltimate) {
     final tower = _game.towers[towerIndex];
     final ability = isUltimate ? tower.ultimateAbility : tower.activeAbility;
     if (ability == null) return;
 
-    final liveEnemies = _game.enemies
-        .where((e) => !e.isDead && e.position >= 0)
-        .toList();
-
-    switch (ability.targeting) {
-      case 'instant':
-        if (isUltimate) {
-          _game.castUltimate(towerIndex);
-        } else {
-          _game.castActiveAbility(towerIndex);
-        }
-      case 'enemy':
-        if (liveEnemies.isEmpty) return;
-        // For execute-type: pick lowest HP% enemy; otherwise highest HP
-        final hasHpCondition = ability.effects.any((e) =>
-            e.params['condition'] is Map &&
-            (e.params['condition'] as Map).containsKey('target_hp_below_pct'));
-        TdEnemy target;
-        if (hasHpCondition) {
-          final sorted = List.of(liveEnemies)
-            ..sort((a, b) => a.hpFraction.compareTo(b.hpFraction));
-          target = sorted.first;
-        } else {
-          final sorted = List.of(liveEnemies)
-            ..sort((a, b) => b.hp.compareTo(a.hp));
-          target = sorted.first;
-        }
-        if (isUltimate) {
-          _game.castUltimate(towerIndex, targetEnemyId: target.id);
-        } else {
-          _game.castActiveAbility(towerIndex, targetEnemyId: target.id);
-        }
-      case 'lane':
-        // Pick lane with most enemies
-        final counts = [0, 0, 0];
-        for (final e in liveEnemies) {
-          counts[e.laneIndex]++;
-        }
-        var bestLane = tower.laneIndex;
-        for (var l = 0; l < 3; l++) {
-          if (counts[l] > counts[bestLane]) bestLane = l;
-        }
-        if (isUltimate) {
-          _game.castUltimate(towerIndex, targetLane: bestLane);
-        } else {
-          _game.castActiveAbility(towerIndex, targetLane: bestLane);
-        }
-      case 'tower':
-        // Pick most debuffed tower, or self
-        final placed = _game.towers.where((t) => t.laneIndex >= 0).toList();
-        final debuffed = placed.where((t) => t.isDebuffed).toList();
-        final targetIdx = debuffed.isNotEmpty
-            ? _game.towers.indexOf(debuffed.first)
-            : towerIndex;
-        if (isUltimate) {
-          _game.castUltimate(towerIndex, targetTowerIndex: targetIdx);
-        } else {
-          _game.castActiveAbility(towerIndex, targetTowerIndex: targetIdx);
-        }
+    if (ability.isInstant) {
+      if (isUltimate) {
+        _game.castUltimate(towerIndex);
+      } else {
+        _game.castActiveAbility(towerIndex);
+      }
+    } else {
+      // Targeted ability → enter targeting mode (pauses game)
+      _enterTargetingMode(towerIndex, isUltimate);
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Targeting overlay — pauses game, shows valid targets
+  // -----------------------------------------------------------------------
+
+  Widget _buildTargetingOverlay() {
+    final tower = _game.towers[_targetingTowerIndex];
+    final ability = _targetingIsUltimate
+        ? tower.ultimateAbility
+        : tower.activeAbility;
+    final towerColor = tower.color;
+
+    return Positioned.fill(
+      child: Column(
+        children: [
+          // Header: ability name + cancel button
+          Container(
+            color: Colors.black87,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: SafeArea(
+              bottom: false,
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _targetingIsUltimate
+                          ? const Color(0xFFFFD700)
+                          : towerColor,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Select ${_targetingType == 'enemy' ? 'an enemy' : _targetingType == 'lane' ? 'a lane' : 'a tower'} for ${ability?.name ?? ''}',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _cancelTargeting,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      child: Text(
+                        'CANCEL',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red.shade300,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Target area: depends on targeting type
+          Expanded(
+            child: _targetingType == 'lane'
+                ? _buildLaneTargeting(towerColor)
+                : _targetingType == 'enemy'
+                    ? _buildEnemyTargeting(towerColor)
+                    : _buildTowerTargeting(towerColor),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Lane targeting: 3 tappable lane strips with dim overlay.
+  Widget _buildLaneTargeting(Color towerColor) {
+    return Column(
+      children: List.generate(3, (lane) {
+        final enemyCount =
+            _game.enemies.where((e) => !e.isDead && e.laneIndex == lane).length;
+        return Expanded(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _confirmTarget(lane: lane),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.4),
+                border: Border(
+                  bottom: lane < 2
+                      ? BorderSide(
+                          color: towerColor.withValues(alpha: 0.3), width: 1)
+                      : BorderSide.none,
+                ),
+              ),
+              child: Center(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: towerColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: towerColor.withValues(alpha: 0.6),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'LANE ${lane + 1}',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: towerColor,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      if (enemyCount > 0)
+                        Text(
+                          '$enemyCount ${enemyCount == 1 ? 'enemy' : 'enemies'}',
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  /// Enemy targeting: tappable enemies over a dimmed game field.
+  Widget _buildEnemyTargeting(Color towerColor) {
+    final liveEnemies =
+        _game.enemies.where((e) => !e.isDead && e.position >= 0).toList();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final totalHeight = constraints.maxHeight;
+        final laneHeight = totalHeight / 3;
+        final laneWidth = constraints.maxWidth;
+
+        return Stack(
+          children: [
+            // Dim background
+            Positioned.fill(
+              child: Container(color: Colors.black.withValues(alpha: 0.5)),
+            ),
+            // Tappable enemies
+            ...liveEnemies.map((enemy) {
+              final size = (enemy.isBoss ? 40.0 : 28.0) * _uiScale;
+              final left = (1.0 - enemy.position) * (laneWidth - size);
+              final top = enemy.laneIndex * laneHeight +
+                  (laneHeight - size) / 2;
+
+              final baseColor = enemy.isBoss
+                  ? _game.keystone.dungeon.bossColor
+                  : _game.keystone.dungeon.enemyColor;
+
+              return Positioned(
+                left: left.clamp(0, laneWidth - size),
+                top: top,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _confirmTarget(enemyId: enemy.id),
+                  child: Container(
+                    width: size + 12,
+                    height: size + 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: towerColor.withValues(alpha: 0.9),
+                        width: 2.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: towerColor.withValues(alpha: 0.4),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: size,
+                        height: size,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: baseColor.withValues(alpha: 0.8),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (enemy.isBoss)
+                              Icon(Icons.dangerous_rounded,
+                                  size: 14 * _uiScale,
+                                  color: Colors.white),
+                            Text(
+                              '${(enemy.hpFraction * 100).round()}%',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: enemy.isBoss ? 10 : 8,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            // Lane dividers
+            for (var i = 0; i < 2; i++)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: (i + 1) * laneHeight,
+                child: Container(
+                  height: 1,
+                  color: Colors.white12,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Tower targeting: tappable allied towers over a dimmed game field.
+  Widget _buildTowerTargeting(Color casterColor) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final totalHeight = constraints.maxHeight;
+        final laneHeight = totalHeight / 3;
+        final laneWidth = constraints.maxWidth;
+
+        return Stack(
+          children: [
+            // Dim background
+            Positioned.fill(
+              child: Container(color: Colors.black.withValues(alpha: 0.5)),
+            ),
+            // Tappable towers
+            for (var i = 0; i < _game.towers.length; i++)
+              if (_game.towers[i].laneIndex >= 0)
+                Builder(builder: (_) {
+                  final t = _game.towers[i];
+                  final size = 48.0 * _uiScale;
+                  final slotX = (1.0 - t.slotPosition) * laneWidth;
+                  final left = (slotX - size / 2).clamp(0.0, laneWidth - size);
+                  final top =
+                      t.laneIndex * laneHeight + (laneHeight - size) / 2;
+                  final tColor = t.color;
+                  final idx = i;
+
+                  return Positioned(
+                    left: left,
+                    top: top,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _confirmTarget(towerIdx: idx),
+                      child: Container(
+                        width: size,
+                        height: size,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: tColor.withValues(alpha: 0.2),
+                          border: Border.all(
+                            color: casterColor.withValues(alpha: 0.9),
+                            width: 2.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: casterColor.withValues(alpha: 0.4),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                t.character.name.length > 5
+                                    ? t.character.name.substring(0, 4)
+                                    : t.character.name,
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                t.isDebuffed ? 'DEBUFFED' : t.archetype.name.toUpperCase(),
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 7,
+                                  color: t.isDebuffed
+                                      ? Colors.red.shade300
+                                      : Colors.white54,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+            // Lane dividers
+            for (var i = 0; i < 2; i++)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: (i + 1) * laneHeight,
+                child: Container(
+                  height: 1,
+                  color: Colors.white12,
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildTowerInfoBar() {
