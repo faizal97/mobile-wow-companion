@@ -1361,34 +1361,23 @@ class _TdGameScreenState extends State<TdGameScreen>
     final ultimate = tower.ultimateAbility;
     final cellWidth = 52.0 * scale;
 
-    return GestureDetector(
-      onTap: () {
-        // Tap = cast active ability
-        if (active == null || !tower.canUseActive) return;
-        if (active.isInstant) {
-          _game.castActiveAbility(index);
-        } else {
-          _startTargeting(index, false);
-        }
-      },
-      onVerticalDragEnd: (details) {
-        // Swipe up = cast ultimate
-        if (details.primaryVelocity != null && details.primaryVelocity! < -100) {
-          if (ultimate == null || !tower.canUseUltimate) return;
-          if (ultimate.isInstant) {
-            _game.castUltimate(index);
-          } else {
-            _startTargeting(index, true);
-          }
-        }
-      },
-      child: SizedBox(
-        width: cellWidth,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Active ability button with cooldown sweep
-            SizedBox(
+    return SizedBox(
+      width: cellWidth,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ── Active ability button (separate tap zone) ──
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (active == null || !tower.canUseActive) return;
+              if (active.isInstant) {
+                _game.castActiveAbility(index);
+              } else {
+                _startTargeting(index, false);
+              }
+            },
+            child: SizedBox(
               width: 36 * scale,
               height: 36 * scale,
               child: Stack(
@@ -1397,10 +1386,12 @@ class _TdGameScreenState extends State<TdGameScreen>
                   Container(
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppTheme.surface,
+                      color: tower.canUseActive
+                          ? towerColor.withValues(alpha: 0.15)
+                          : AppTheme.surface,
                       border: Border.all(
                         color: tower.canUseActive
-                            ? towerColor.withValues(alpha: 0.8)
+                            ? towerColor.withValues(alpha: 0.9)
                             : AppTheme.textTertiary.withValues(alpha: 0.3),
                         width: tower.canUseActive ? 2.0 : 1.0,
                       ),
@@ -1412,7 +1403,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                           fontSize: 14 * scale,
                           fontWeight: FontWeight.w700,
                           color: tower.canUseActive
-                              ? towerColor
+                              ? Colors.white
                               : AppTheme.textTertiary,
                         ),
                       ),
@@ -1443,15 +1434,26 @@ class _TdGameScreenState extends State<TdGameScreen>
                 ],
               ),
             ),
-            // Divider in class color
-            Container(
-              width: 30 * scale,
-              height: 1,
-              margin: const EdgeInsets.symmetric(vertical: 2),
-              color: towerColor.withValues(alpha: 0.4),
-            ),
-            // Ultimate with charge ring
-            SizedBox(
+          ),
+          // Divider in class color
+          Container(
+            width: 30 * scale,
+            height: 1,
+            margin: const EdgeInsets.symmetric(vertical: 2),
+            color: towerColor.withValues(alpha: 0.4),
+          ),
+          // ── Ultimate button (separate tap zone) ──
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (ultimate == null || !tower.canUseUltimate) return;
+              if (ultimate.isInstant) {
+                _game.castUltimate(index);
+              } else {
+                _startTargeting(index, true);
+              }
+            },
+            child: SizedBox(
               width: 28 * scale,
               height: 28 * scale,
               child: Stack(
@@ -1482,20 +1484,20 @@ class _TdGameScreenState extends State<TdGameScreen>
                 ],
               ),
             ),
-            // Tower name
-            Text(
-              tower.character.name.length > 6
-                  ? tower.character.name.substring(0, 5)
-                  : tower.character.name,
-              style: GoogleFonts.rajdhani(
-                fontSize: 8,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textTertiary,
-              ),
-              overflow: TextOverflow.ellipsis,
+          ),
+          // Tower name
+          Text(
+            tower.character.name.length > 6
+                ? tower.character.name.substring(0, 5)
+                : tower.character.name,
+            style: GoogleFonts.rajdhani(
+              fontSize: 8,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textTertiary,
             ),
-          ],
-        ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }
