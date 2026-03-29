@@ -1486,6 +1486,7 @@ class _TdGameScreenState extends State<TdGameScreen>
         ? tower.ultimateAbility
         : tower.activeAbility;
     final towerColor = tower.color;
+    final scale = _uiScale;
 
     return Positioned.fill(
       child: Column(
@@ -1493,54 +1494,101 @@ class _TdGameScreenState extends State<TdGameScreen>
           // Header: ability name + cancel button
           Container(
             color: Colors.black87,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: SafeArea(
               bottom: false,
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _targetingIsUltimate
-                          ? const Color(0xFFFFD700)
-                          : towerColor,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Select ${_targetingType == 'enemy' ? 'an enemy' : _targetingType == 'lane' ? 'a lane' : 'a tower'} for ${ability?.name ?? ''}',
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _cancelTargeting,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: Colors.red.withValues(alpha: 0.6),
+                  Row(
+                    children: [
+                      // Ability indicator dot
+                      Container(
+                        width: 10 * scale,
+                        height: 10 * scale,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _targetingIsUltimate
+                              ? const Color(0xFFFFD700)
+                              : towerColor,
+                          boxShadow: [
+                            BoxShadow(
+                              color: (_targetingIsUltimate
+                                      ? const Color(0xFFFFD700)
+                                      : towerColor)
+                                  .withValues(alpha: 0.5),
+                              blurRadius: 6,
+                            ),
+                          ],
                         ),
                       ),
+                      SizedBox(width: 8 * scale),
+                      // Ability name + targeting instruction
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              ability?.name ?? '',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 16 * scale,
+                                fontWeight: FontWeight.w700,
+                                color: _targetingIsUltimate
+                                    ? const Color(0xFFFFD700)
+                                    : towerColor,
+                              ),
+                            ),
+                            Text(
+                              'Tap ${_targetingType == 'enemy' ? 'an enemy' : _targetingType == 'lane' ? 'a lane' : 'a tower'} to cast',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 11 * scale,
+                                color: Colors.white60,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Cancel button
+                      GestureDetector(
+                        onTap: _cancelTargeting,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 12 * scale, vertical: 6 * scale),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: Colors.red.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          child: Text(
+                            'CANCEL',
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 12 * scale,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.red.shade300,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Ability description
+                  if (ability != null && ability.description.isNotEmpty)
+                    Padding(
+                      padding: EdgeInsets.only(top: 4 * scale, left: 18 * scale),
                       child: Text(
-                        'CANCEL',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.red.shade300,
+                        ability.description,
+                        style: GoogleFonts.inter(
+                          fontSize: 11 * scale,
+                          color: Colors.white54,
+                          height: 1.3,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -1580,8 +1628,8 @@ class _TdGameScreenState extends State<TdGameScreen>
               ),
               child: Center(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 20 * _uiScale, vertical: 10 * _uiScale),
                   decoration: BoxDecoration(
                     color: towerColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
@@ -1596,7 +1644,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                       Text(
                         'LANE ${lane + 1}',
                         style: GoogleFonts.rajdhani(
-                          fontSize: 18,
+                          fontSize: 18 * _uiScale,
                           fontWeight: FontWeight.w700,
                           color: towerColor,
                           letterSpacing: 2,
@@ -1606,7 +1654,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                         Text(
                           '$enemyCount ${enemyCount == 1 ? 'enemy' : 'enemies'}',
                           style: GoogleFonts.rajdhani(
-                            fontSize: 12,
+                            fontSize: 12 * _uiScale,
                             color: Colors.white70,
                           ),
                         ),
@@ -1640,42 +1688,44 @@ class _TdGameScreenState extends State<TdGameScreen>
             ),
             // Tappable enemies
             ...liveEnemies.map((enemy) {
-              final size = (enemy.isBoss ? 40.0 : 28.0) * _uiScale;
-              final left = (1.0 - enemy.position) * (laneWidth - size);
+              final scale = _uiScale;
+              final outerSize = (enemy.isBoss ? 52.0 : 36.0) * scale;
+              final innerSize = (enemy.isBoss ? 44.0 : 28.0) * scale;
+              final left = (1.0 - enemy.position) * (laneWidth - outerSize);
               final top = enemy.laneIndex * laneHeight +
-                  (laneHeight - size) / 2;
+                  (laneHeight - outerSize) / 2;
 
               final baseColor = enemy.isBoss
                   ? _game.keystone.dungeon.bossColor
                   : _game.keystone.dungeon.enemyColor;
 
               return Positioned(
-                left: left.clamp(0, laneWidth - size),
+                left: left.clamp(0, laneWidth - outerSize),
                 top: top,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => _confirmTarget(enemyId: enemy.id),
                   child: Container(
-                    width: size + 12,
-                    height: size + 12,
+                    width: outerSize,
+                    height: outerSize,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: towerColor.withValues(alpha: 0.9),
-                        width: 2.5,
+                        width: 2.5 * scale,
                       ),
                       boxShadow: [
                         BoxShadow(
                           color: towerColor.withValues(alpha: 0.4),
-                          blurRadius: 10,
-                          spreadRadius: 2,
+                          blurRadius: 10 * scale,
+                          spreadRadius: 2 * scale,
                         ),
                       ],
                     ),
                     child: Center(
                       child: Container(
-                        width: size,
-                        height: size,
+                        width: innerSize,
+                        height: innerSize,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: baseColor.withValues(alpha: 0.8),
@@ -1685,12 +1735,12 @@ class _TdGameScreenState extends State<TdGameScreen>
                           children: [
                             if (enemy.isBoss)
                               Icon(Icons.dangerous_rounded,
-                                  size: 14 * _uiScale,
+                                  size: 16 * scale,
                                   color: Colors.white),
                             Text(
                               '${(enemy.hpFraction * 100).round()}%',
                               style: GoogleFonts.rajdhani(
-                                fontSize: enemy.isBoss ? 10 : 8,
+                                fontSize: (enemy.isBoss ? 13 : 11) * scale,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.white,
                               ),
@@ -1780,7 +1830,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                                     ? t.character.name.substring(0, 4)
                                     : t.character.name,
                                 style: GoogleFonts.rajdhani(
-                                  fontSize: 10,
+                                  fontSize: 11 * _uiScale,
                                   fontWeight: FontWeight.w700,
                                   color: Colors.white,
                                 ),
@@ -1788,7 +1838,7 @@ class _TdGameScreenState extends State<TdGameScreen>
                               Text(
                                 t.isDebuffed ? 'DEBUFFED' : t.archetype.name.toUpperCase(),
                                 style: GoogleFonts.rajdhani(
-                                  fontSize: 7,
+                                  fontSize: 8 * _uiScale,
                                   color: t.isDebuffed
                                       ? Colors.red.shade300
                                       : Colors.white54,
