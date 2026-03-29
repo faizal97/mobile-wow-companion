@@ -126,12 +126,20 @@ class TdTower {
       : 0.0;
 
   /// Initialize ability cooldowns at wave start.
+  /// On wave 1 (first call), applies initial cooldown penalty.
+  /// On subsequent waves, carries over remaining cooldown from previous wave.
+  bool _abilitiesInitialized = false;
+
   void initAbilityCooldowns() {
-    if (activeAbility != null) {
-      activeCooldownRemaining =
-          activeAbility!.cooldown * activeAbility!.initialCooldownPct;
+    if (!_abilitiesInitialized) {
+      // First wave: apply initial cooldown penalty
+      _abilitiesInitialized = true;
+      if (activeAbility != null) {
+        activeCooldownRemaining =
+            activeAbility!.cooldown * activeAbility!.initialCooldownPct;
+      }
     }
-    // Ultimate charge persists across waves; don't reset.
+    // Subsequent waves: cooldown, active effects, and charge all carry over.
   }
 
   /// Add a charge to the ultimate if the trigger matches.
