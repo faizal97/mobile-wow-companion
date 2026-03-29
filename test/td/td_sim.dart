@@ -9,6 +9,7 @@ import 'package:wow_warband_companion/td/data/td_balance_config.dart';
 import 'package:wow_warband_companion/td/data/td_class_registry.dart';
 import 'package:wow_warband_companion/td/data/td_hero_registry.dart';
 import 'package:wow_warband_companion/td/data/td_run_state.dart';
+import 'package:wow_warband_companion/td/models/td_combat_log.dart';
 import 'package:wow_warband_companion/td/models/td_models.dart';
 import 'package:wow_warband_companion/td/td_game_state.dart';
 
@@ -140,6 +141,7 @@ class SimResult {
   final int enemiesKilled;
   final int totalTicks;
   final List<String> waveLog;
+  final List<TdCombatLogEntry> combatLog;
 
   SimResult({
     required this.dungeon,
@@ -152,6 +154,7 @@ class SimResult {
     required this.enemiesKilled,
     required this.totalTicks,
     this.waveLog = const [],
+    this.combatLog = const [],
   });
 
   double get timeSeconds => totalTicks / 60.0;
@@ -160,6 +163,19 @@ class SimResult {
   String toString() => '${cleared ? "CLEAR" : "DEPLETE"} '
       '| Lives: $livesRemaining | Waves: $wavesCompleted/5 '
       '| Kills: $enemiesKilled | Time: ${timeSeconds.toStringAsFixed(1)}s';
+
+  /// Print the full combat log to stdout.
+  void printCombatLog() {
+    if (combatLog.isEmpty) {
+      print('  (no combat log entries)');
+      return;
+    }
+    print('\n--- Combat Log ($dungeon +$keystoneLevel) ---');
+    for (final entry in combatLog) {
+      print('  ${entry.message}');
+    }
+    print('--- End Combat Log (${combatLog.length} entries) ---\n');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,10 +470,12 @@ class TdSim {
       enemiesKilled: game.enemiesKilled,
       totalTicks: tick,
       waveLog: waveLog,
+      combatLog: List.of(game.combatLog),
     );
 
     if (verbose) {
       print('\n  RESULT: $result');
+      result.printCombatLog();
     }
 
     return result;

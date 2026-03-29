@@ -15,6 +15,7 @@ import '../data/td_sfx_registry.dart';
 import '../models/td_models.dart';
 import '../services/td_audio_service.dart';
 import '../td_game_state.dart';
+import '../widgets/td_combat_log_overlay.dart';
 import 'td_dungeon_briefing_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -527,6 +528,20 @@ class _TdGameScreenState extends State<TdGameScreen>
             );
           }),
         ),
+        // Combat log overlay (above lanes, below targeting/end overlays)
+        if (_game.combatLog.isNotEmpty && !_isTargeting &&
+            _game.phase != TdGamePhase.victory &&
+            _game.phase != TdGamePhase.defeat &&
+            _game.phase != TdGamePhase.setup)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: TdCombatLogOverlay(
+              entries: _game.combatLog,
+              uiScale: _uiScale,
+            ),
+          ),
         // Targeting overlay — rendered inside lanes so positions align
         if (_isTargeting) ...[
           // Targeting content (enemy/lane/tower selection)

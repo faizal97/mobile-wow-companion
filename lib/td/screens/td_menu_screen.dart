@@ -13,6 +13,8 @@ import '../data/td_dungeon_registry.dart';
 import '../data/td_hero_registry.dart';
 import '../data/td_rotation.dart';
 import '../data/td_run_state.dart';
+import '../data/td_sfx_registry.dart';
+import '../services/td_audio_service.dart';
 import 'td_class_guide_screen.dart';
 import 'td_comp_selection_screen.dart';
 import 'td_dungeon_roulette_screen.dart';
@@ -33,6 +35,8 @@ class _TdMenuScreenState extends State<TdMenuScreen>
 
   TdClassRegistry? _classRegistry;
   TdHeroRegistry? _heroRegistry;
+  TdSfxRegistry? _sfxRegistry;
+  TdAudioService? _audio;
   TdRotation? _rotation;
   List<TdDungeonDef> _dungeons = [];
   bool _dataLoading = true;
@@ -58,18 +62,24 @@ class _TdMenuScreenState extends State<TdMenuScreen>
     final dungeonReg = TdDungeonRegistry();
     final heroReg = TdHeroRegistry();
     final rotation = TdRotation();
+    final sfxReg = TdSfxRegistry();
 
     await Future.wait([
       classReg.load(),
       dungeonReg.load(),
       heroReg.load(),
       rotation.load(),
+      sfxReg.load(),
     ]);
 
     if (mounted) {
+      final audio = TdAudioService(sfxReg);
+      await audio.init();
       setState(() {
         _classRegistry = classReg;
         _heroRegistry = heroReg;
+        _sfxRegistry = sfxReg;
+        _audio = audio;
         _rotation = rotation;
         _dungeons = rotation.getDungeons(dungeonReg);
         _dataLoading = false;
@@ -80,6 +90,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
   @override
   void dispose() {
     _glowController.dispose();
+    _audio?.dispose();
     super.dispose();
   }
 
@@ -97,6 +108,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
   bool get _canStart => !_dataLoading;
 
   void _startRun(List<WowCharacter> allCharacters) {
+    _audio?.playEvent(const TdSfxEvent(type: TdSfxEventType.keystoneInsert));
     setState(() => _rosterLocked = true);
     final runState = TdRunState();
     _navigateToKey(allCharacters, runState).then((_) {
@@ -119,6 +131,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
           builder: (_) => TdDungeonRouletteScreen(
             dungeons: _dungeons,
             keystoneLevel: runState.keystoneLevel,
+            sfxRegistry: _sfxRegistry,
           ),
         ),
       );
@@ -138,6 +151,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
           maxTowers: runState.maxTowers(config),
           classRegistry: _classRegistry!,
           heroRegistry: _heroRegistry,
+          sfxRegistry: _sfxRegistry,
         ),
       ),
     );
@@ -152,6 +166,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
             selectedCharacters: comp,
             classRegistry: _classRegistry!,
             heroRegistry: _heroRegistry,
+            sfxRegistry: _sfxRegistry,
           ),
         ),
       );
@@ -170,6 +185,7 @@ class _TdMenuScreenState extends State<TdMenuScreen>
           heroRegistry: _heroRegistry,
           dungeons: _dungeons,
           runState: runState,
+          sfxRegistry: _sfxRegistry,
         ),
       ),
     );

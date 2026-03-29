@@ -13,6 +13,7 @@ import 'effects/ability_effects.dart';
 import 'effects/tower_effects.dart';
 import 'effects/enemy_effects.dart';
 import 'effects/boss_effects.dart';
+import 'models/td_combat_log.dart';
 import 'models/td_models.dart';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,23 @@ class TdGameState extends ChangeNotifier {
 
   // ---- SFX event queue (consumed each frame by the UI) ----
   List<TdSfxEvent> sfxEvents = [];
+
+  // ---- Combat log (persistent, capped at _maxCombatLogEntries) ----
+  static const int _maxCombatLogEntries = 500;
+  final List<TdCombatLogEntry> combatLog = [];
+
+  // Combat log color constants
+  static const _logColorCrit = Color(0xFFFF8000);
+  static const _logColorDeath = Color(0xFF888888);
+  static const _logColorBoss = Color(0xFFFF5E5B);
+  static const _logColorWave = Color(0xFFFFD700);
+  static const _logColorAffix = Color(0xFFFFA500);
+  static const _logColorLeak = Color(0xFFFF5E5B);
+  static const _logColorDot = Color(0xFFA335EE);
+  static const _logColorSlow = Color(0xFF4FC3F7);
+  static const _logColorBuff = Color(0xFF00C853);
+  static const _logColorInfo = Color(0xFF8888A0);
+  static const _logColorHeal = Color(0xFF66BB6A);
 
   /// Fire zones visible to the UI for rendering.
   List<FireZone> get fireZones => _fireZones;
@@ -190,11 +208,66 @@ class TdGameState extends ChangeNotifier {
     ));
   }
 
+  /// Append a combat log entry (capped at [_maxCombatLogEntries]).
+  void _logCombat(String message, Color color) {
+    combatLog.add(TdCombatLogEntry(message: message, color: color));
+    if (combatLog.length > _maxCombatLogEntries) {
+      combatLog.removeAt(0);
+    }
+  }
+
+  /// Format a buff for the combat log.
+  String _buffLabel(TowerAbilityBuff buff) {
+    switch (buff.type) {
+      case 'damage_multiplier':
+        return '+${((buff.value - 1) * 100).round()}% dmg';
+      case 'attack_speed_multiplier':
+        return '+${((1 - buff.value) * 100).abs().round()}% atk speed';
+      case 'guaranteed_crit':
+        return '${buff.value.toStringAsFixed(1)}x guaranteed crit';
+      case 'immune_to_debuff':
+        return 'debuff immunity';
+      case 'immune_to_damage':
+        return 'damage immunity';
+      case 'cross_lane_attack':
+        return 'cross-lane attacks';
+      default:
+        return buff.type.replaceAll('_', ' ');
+    }
+  }
+
+  /// Log an ability cast with damage info when the ability dealt damage.
+  void _logAbility(TdTower tower, String abilityName, AbilityResult result, Color color, {bool isUltimate = false}) {
+    final name = tower.character.name;
+    final verb = isUltimate ? 'unleashes' : 'casts';
+    final bang = isUltimate ? '!' : '';
+
+    if (result.hits.isEmpty) {
+      _logCombat('$name $verb $abilityName$bang', color);
+      return;
+    }
+
+    final totalDmg = result.hits.fold<double>(0, (sum, h) => sum + h.damage);
+    final hitCount = result.hits.length;
+    final hasBoss = result.hits.any((h) {
+      final e = enemies.where((e) => e.id == h.enemyId).firstOrNull;
+      return e?.isBoss ?? false;
+    });
+
+    final target = hasBoss
+        ? 'Boss'
+        : hitCount > 1
+            ? '$hitCount enemies'
+            : 'enemy';
+    _logCombat('$name $verb $abilityName on $target for ${totalDmg.round()}$bang', color);
+  }
+
   /// Transition from setup to the first wave.
   void beginGame() {
     phase = TdGamePhase.playing;
     currentWave = 1;
     _emitSfx(TdSfxEventType.gameStart);
+    _logCombat('══ ${keystone.dungeonName.toUpperCase()} +${keystone.level} ══', _logColorWave);
     _spawnWave();
     notifyListeners();
   }
@@ -266,17 +339,18 @@ class TdGameState extends ChangeNotifier {
             leakCost = (leakCost - config.fortifyBossLeakReduction).clamp(1, leakCost);
           }
         }
-        lives -= leakCost;
+        lives = (lives - leakCost).clamp(0, maxLives);
         e.hp = 0; // remove from play
         _emitSfx(TdSfxEventType.enemyLeak);
+        _logCombat('${e.isBoss ? 'Boss' : 'Enemy'} leaked! Lives: $lives', _logColorLeak);
       }
     }
 
     // 5. Check defeat
     if (lives <= 0) {
-      lives = 0;
       phase = TdGamePhase.defeat;
       _emitSfx(TdSfxEventType.defeat);
+      _logCombat('══ KEYSTONE DEPLETED ══', _logColorBoss);
       notifyListeners();
       return;
     }
@@ -339,9 +413,11 @@ class TdGameState extends ChangeNotifier {
       if (currentWave >= totalWaves) {
         phase = TdGamePhase.victory;
         _emitSfx(TdSfxEventType.victory);
+        _logCombat('══ KEYSTONE COMPLETE! ══', _logColorWave);
       } else {
         phase = TdGamePhase.betweenWaves;
         _emitSfx(TdSfxEventType.waveComplete);
+        _logCombat('── Wave $currentWave complete ──', _logColorWave);
       }
     }
 
@@ -353,6 +429,9 @@ class TdGameState extends ChangeNotifier {
   // -----------------------------------------------------------------------
 
   void _processEnemyModifiers(double dt) {
+    // Batch attack damage per lane for logging
+    final attackDmgByLane = <int, double>{};
+
     for (final enemy in enemies) {
       if (enemy.isDead || enemy.modifiers.isEmpty) continue;
 
@@ -370,6 +449,7 @@ class TdGameState extends ChangeNotifier {
           case SwitchLaneResult(:final newLane):
             enemy.laneIndex = newLane;
             _emitSfx(TdSfxEventType.laneSwitch);
+            _logCombat('Enemy switches to lane ${newLane + 1}', _logColorInfo);
           case AttackTowerResult(:final lane, :final damage):
             for (final t in towers) {
               if (t.laneIndex == lane && !t.isImmuneToDebuff) {
@@ -377,15 +457,27 @@ class TdGameState extends ChangeNotifier {
                 t.debuffTimer = (t.debuffTimer + damage * 0.1).clamp(0, 3);
               }
             }
+            attackDmgByLane[lane] = (attackDmgByLane[lane] ?? 0) + damage;
           case SetSpeedResult(:final multiplier):
             enemy.speedMultiplier = multiplier;
-            if (multiplier > 1.0) _emitSfx(TdSfxEventType.enemyAccelerate);
+            if (multiplier > 1.0) {
+              _emitSfx(TdSfxEventType.enemyAccelerate);
+              _logCombat('Enemy accelerates to ${(multiplier * 100).round()}% speed', _logColorInfo);
+            }
           case SlowTowersResult():
             // frost_aura effect — applied as a temporary attack speed debuff,
             // handled elsewhere via flag reading
             break;
         }
       }
+    }
+
+    // Log batched enemy attacks (one line per tick instead of per-enemy)
+    if (attackDmgByLane.isNotEmpty) {
+      final parts = attackDmgByLane.entries
+          .map((e) => 'lane ${e.key + 1}: ${e.value.round()}')
+          .join(', ');
+      _logCombat('Enemies attack towers ($parts)', _logColorBoss);
     }
   }
 
@@ -485,6 +577,11 @@ class TdGameState extends ChangeNotifier {
           break;
       }
 
+      // Apply transform stacking damage (Voidform)
+      if (tower.transformArchetype != null && tower.transformStackingBonus > 0) {
+        baseDamage *= (1.0 + tower.transformStackingBonus);
+      }
+
       // Build enemy list for processor
       final enemyRecords = enemies
           .where((e) => !e.isDead && e.position >= 0)
@@ -505,6 +602,7 @@ class TdGameState extends ChangeNotifier {
         chargeTimer: tower.chargeTimer,
         dt: dt,
         rng: _rng,
+        targetingOverride: tower.transformTargeting,
       );
 
       if (result.isCharging) {
@@ -515,11 +613,16 @@ class TdGameState extends ChangeNotifier {
       // Charge attack released — emit SFX if tower was charging
       if (hasChargeAttack && tower.chargeTimer > 0) {
         _emitSfx(TdSfxEventType.chargeRelease, className: tower.classDef.name);
+        _logCombat('${tower.character.name} releases charged attack!', tower.color);
       }
       tower.chargeTimer = 0; // reset after firing
 
       // Apply hits
       final towerX = tower.slotPosition;
+      double logTotalDamage = 0;
+      int logHitCount = 0;
+      bool logHitBoss = false;
+      bool logReflected = false;
       for (final hit in result.hits) {
         final enemy = enemies.firstWhere((e) => e.id == hit.enemyId,
             orElse: () => enemies.first);
@@ -539,9 +642,14 @@ class TdGameState extends ChangeNotifier {
             tower.isDebuffed = true;
             tower.debuffTimer = 0.5;
           }
+          logReflected = true;
         } else {
           enemy.hp = (enemy.hp - actualDamage).clamp(0, enemy.maxHp);
         }
+
+        logTotalDamage += actualDamage;
+        logHitCount++;
+        if (enemy.isBoss) logHitBoss = true;
 
         hitEvents.add(TdHitEvent(
           towerLane: tower.laneIndex,
@@ -594,19 +702,50 @@ class TdGameState extends ChangeNotifier {
         if (result.hits.length > 1 && tower.classDef.passive.effects.any((e) => e.type == 'chain_damage')) {
           _emitSfx(TdSfxEventType.chainDamage, className: className);
         }
+
+        // Combat log: attack summary
+        final name = tower.character.name;
+        final dmg = logTotalDamage.round();
+        final crossTag = result.hasCrossLaneHit ? ' ×lane' : '';
+        if (logReflected) {
+          _logCombat('$name\'s attack reflected by Boss!', _logColorBoss);
+        } else if (result.didCrit) {
+          final target = logHitBoss ? 'Boss' : logHitCount > 1 ? '$logHitCount enemies' : 'enemy';
+          _logCombat('$name CRITS $target for $dmg!$crossTag', _logColorCrit);
+        } else {
+          final target = logHitBoss ? 'Boss' : logHitCount > 1 ? '$logHitCount enemies' : 'enemy';
+          _logCombat('$name hits $target for $dmg$crossTag', tower.color);
+        }
       }
 
-      // Apply status effects
+      // Increment transform stacking damage (Voidform)
+      if (tower.transformArchetype != null && tower.transformStackingDmgPerHit > 0 && logHitCount > 0) {
+        tower.transformStackingBonus += tower.transformStackingDmgPerHit;
+      }
+
+      // Apply status effects (with dedup: refresh existing instead of stacking)
       for (final effect in result.newStatusEffects) {
         final enemy =
             enemies.where((e) => e.id == effect.sourceId).firstOrNull;
         if (enemy != null) {
-          enemy.statusEffects.add(effect);
-          // Emit status effect SFX
-          if (effect.type == 'dot') {
-            _emitSfx(TdSfxEventType.dotApply, className: tower.classDef.name);
-          } else if (effect.type == 'slow') {
-            _emitSfx(TdSfxEventType.slowApply, className: tower.classDef.name);
+          // Check if an effect of the same type already exists on this enemy
+          final existing = enemy.statusEffects
+              .where((e) => e.type == effect.type && e.remaining > 0)
+              .firstOrNull;
+          if (existing != null) {
+            // Refresh duration instead of stacking
+            existing.remaining = effect.remaining;
+          } else {
+            enemy.statusEffects.add(effect);
+            // Only log and SFX on first application
+            if (effect.type == 'dot') {
+              _emitSfx(TdSfxEventType.dotApply, className: tower.classDef.name);
+              _logCombat('${tower.character.name} applies DoT (${effect.dotDamage.round()}/tick, ${effect.remaining.toStringAsFixed(1)}s)', _logColorDot);
+            } else if (effect.type == 'slow') {
+              _emitSfx(TdSfxEventType.slowApply, className: tower.classDef.name);
+              final targetLabel = enemy.isBoss ? 'Boss' : 'enemy';
+              _logCombat('${tower.character.name} slows $targetLabel ${(effect.slowAmount * 100).round()}% for ${effect.remaining.toStringAsFixed(1)}s', _logColorSlow);
+            }
           }
         }
       }
@@ -641,12 +780,15 @@ class TdGameState extends ChangeNotifier {
             laneIndex: laneIndex,
           ));
           _emitSfx(TdSfxEventType.summonAdds);
+          _logCombat('Boss summons add in lane ${laneIndex + 1} (${(boss.maxHp * hp).round()} HP)', _logColorBoss);
         case FireZoneEvent(:final laneIndex, :final duration):
           _fireZones.add(FireZone(laneIndex: laneIndex, timer: duration));
           _emitSfx(TdSfxEventType.fireZoneSpawn);
+          _logCombat('Fire zone in lane ${laneIndex + 1} for ${duration.toStringAsFixed(1)}s!', _logColorBoss);
         case BossTeleportEvent(:final newLane):
           boss.laneIndex = newLane;
           _emitSfx(TdSfxEventType.bossTeleport);
+          _logCombat('Boss teleports to lane ${newLane + 1}!', _logColorBoss);
         case KnockbackTowerEvent(:final towerIndex, :final newLane):
           if (towerIndex < towers.length) {
             // Find an open slot in the new lane
@@ -661,9 +803,12 @@ class TdGameState extends ChangeNotifier {
             towers[towerIndex].slotIndex = newSlot;
           }
           _emitSfx(TdSfxEventType.knockbackTower);
+          final kbName = towerIndex < towers.length ? towers[towerIndex].character.name : 'tower';
+          _logCombat('Boss knocks $kbName to lane ${newLane + 1}!', _logColorBoss);
         case ReflectDamageToggleEvent(:final active):
           _bossReflecting = active;
           _emitSfx(active ? TdSfxEventType.reflectDamageOn : TdSfxEventType.reflectDamageOff);
+          _logCombat(active ? 'Boss reflects damage!' : 'Boss stops reflecting', _logColorBoss);
         case WindPushEvent(:final laneIndex, :final pushAmount):
           for (final e in enemies) {
             if (e.laneIndex == laneIndex && !e.isDead) {
@@ -671,6 +816,7 @@ class TdGameState extends ChangeNotifier {
             }
           }
           _emitSfx(TdSfxEventType.windPush);
+          _logCombat('Wind pushes enemies in lane ${laneIndex + 1} (+${(pushAmount * 100).round()}%)', _logColorBoss);
         case StackingDamageTickEvent(:final damagePerTower):
           for (final t in towers) {
             if (t.laneIndex >= 0 && !t.isImmuneToDebuff) {
@@ -681,6 +827,7 @@ class TdGameState extends ChangeNotifier {
             }
           }
           _emitSfx(TdSfxEventType.stackingDamageTick);
+          _logCombat('Stacking damage tick (${damagePerTower.toStringAsFixed(1)}/tower)', _logColorBoss);
         case SplitOnDeathEvent():
           // Handled in death processing, not here
           break;
@@ -694,6 +841,7 @@ class TdGameState extends ChangeNotifier {
       boss.speedMultiplier = mult;
       if (!wasEnraged) {
         _emitSfx(TdSfxEventType.bossEnrage);
+        _logCombat('★ BOSS ENRAGES!', _logColorBoss);
         _bossState['_sfx_enrage_emitted'] = true;
       }
     }
@@ -786,6 +934,10 @@ class TdGameState extends ChangeNotifier {
         if (tower.ultimateTimer <= 0) {
           tower.ultimateActive = false;
           tower.ultimateTimer = 0;
+          final ultName = tower.ultimateAbility?.name;
+          if (ultName != null) {
+            _logCombat('${tower.character.name}\'s $ultName fades', _logColorInfo);
+          }
         }
       }
 
@@ -804,6 +956,18 @@ class TdGameState extends ChangeNotifier {
         if (tower.shapeshiftTimer <= 0) {
           tower.currentForm = null;
           tower.shapeshiftTimer = 0;
+        }
+      }
+
+      // Tick transform revert (Voidform)
+      if (tower.transformArchetype != null) {
+        tower.transformTimer -= dt;
+        if (tower.transformTimer <= 0) {
+          tower.transformArchetype = null;
+          tower.transformTargeting = null;
+          tower.transformTimer = 0;
+          tower.transformStackingBonus = 0;
+          tower.transformStackingDmgPerHit = 0;
         }
       }
 
@@ -855,9 +1019,11 @@ class TdGameState extends ChangeNotifier {
 
     switch (ability.targeting) {
       case 'instant':
+        // Don't waste offensive instant abilities when no enemies alive
+        if (liveEnemies.isEmpty) return;
         castActiveAbility(towerIndex);
       case 'enemy':
-        // Pick best target: lowest HP for damage, lowest HP% for execute
+        // Pick best target based on ability type
         final inLane = liveEnemies.where((e) => e.laneIndex == tower.laneIndex).toList();
         final candidates = inLane.isNotEmpty ? inLane : liveEnemies;
         if (candidates.isEmpty) return;
@@ -866,6 +1032,8 @@ class TdGameState extends ChangeNotifier {
         final hasHpCondition = ability.effects.any((e) =>
             e.params['condition'] is Map &&
             (e.params['condition'] as Map).containsKey('target_hp_below_pct'));
+        // For pull/reposition abilities, target the enemy closest to leaking
+        final hasPull = ability.effects.any((e) => e.type == 'pull_to_start');
         if (hasHpCondition) {
           final threshold = ability.effects
               .where((e) => e.params['condition'] is Map)
@@ -875,6 +1043,12 @@ class TdGameState extends ChangeNotifier {
           if (qualifying.isEmpty) return; // Don't waste Execute on full HP targets
           qualifying.sort((a, b) => a.hp.compareTo(b.hp));
           castActiveAbility(towerIndex, targetEnemyId: qualifying.first.id);
+        } else if (hasPull) {
+          // Target enemy closest to leaking (highest position) — maximize pull distance
+          candidates.sort((a, b) => b.position.compareTo(a.position));
+          final target = candidates.first;
+          if (target.position < 0.15) return; // Don't waste grip on enemies near spawn
+          castActiveAbility(towerIndex, targetEnemyId: target.id);
         } else {
           // Default: target highest HP enemy
           candidates.sort((a, b) => b.hp.compareTo(a.hp));
@@ -896,12 +1070,20 @@ class TdGameState extends ChangeNotifier {
         }
         castActiveAbility(towerIndex, targetLane: bestLane);
       case 'tower':
-        // Pick the most debuffed tower, or the highest damage tower
-        final candidates = towers.where((t) => t.laneIndex >= 0).toList();
+        // Pick the most debuffed ally tower, or the highest damage ally tower
+        // Exclude self and other support towers (buffing 0-DPS towers is useless)
+        final candidates = towers.where((t) =>
+            t.laneIndex >= 0 && t != tower &&
+            t.classDef.archetype != TowerArchetype.support).toList();
         if (candidates.isEmpty) return;
         final debuffed = candidates.where((t) => t.isDebuffed).toList();
-        final target = debuffed.isNotEmpty ? debuffed.first : candidates.first;
-        castActiveAbility(towerIndex, targetTowerIndex: towers.indexOf(target));
+        if (debuffed.isNotEmpty) {
+          castActiveAbility(towerIndex, targetTowerIndex: towers.indexOf(debuffed.first));
+        } else {
+          // Prefer highest effective damage tower
+          candidates.sort((a, b) => b.effectiveDamage.compareTo(a.effectiveDamage));
+          castActiveAbility(towerIndex, targetTowerIndex: towers.indexOf(candidates.first));
+        }
     }
   }
 
@@ -913,6 +1095,7 @@ class TdGameState extends ChangeNotifier {
 
     switch (ability.targeting) {
       case 'instant':
+        if (liveEnemies.isEmpty) return;
         castUltimate(towerIndex);
       case 'enemy':
         // Target highest HP enemy
@@ -997,7 +1180,8 @@ class TdGameState extends ChangeNotifier {
       rng: _rng,
     );
 
-    _applyAbilityResult(result, towerIndex, tower, ability);
+    _logAbility(tower, ability.name, result, tower.color);
+    _applyAbilityResult(result, towerIndex, tower, ability, targetTowerIndex: targetTowerIndex);
 
     // Start cooldown
     tower.activeCooldownRemaining = ability.cooldown;
@@ -1036,7 +1220,8 @@ class TdGameState extends ChangeNotifier {
       rng: _rng,
     );
 
-    _applyAbilityResult(result, towerIndex, tower, ability);
+    _logAbility(tower, ability.name, result, _logColorWave, isUltimate: true);
+    _applyAbilityResult(result, towerIndex, tower, ability, targetTowerIndex: targetTowerIndex);
 
     // Reset charge
     tower.ultimateCharge = 0;
@@ -1051,7 +1236,7 @@ class TdGameState extends ChangeNotifier {
   }
 
   /// Apply the results of an ability execution to game state.
-  void _applyAbilityResult(AbilityResult result, int towerIndex, TdTower tower, AbilityDef ability) {
+  void _applyAbilityResult(AbilityResult result, int towerIndex, TdTower tower, AbilityDef ability, {int? targetTowerIndex}) {
     // Apply hits
     for (final hit in result.hits) {
       final enemy = enemies.where((e) => e.id == hit.enemyId).firstOrNull;
@@ -1094,27 +1279,63 @@ class TdGameState extends ChangeNotifier {
     // Apply instant kills
     for (final id in result.killedEnemyIds) {
       final enemy = enemies.where((e) => e.id == id).firstOrNull;
-      if (enemy != null) enemy.hp = 0;
+      if (enemy != null) {
+        _logCombat('${tower.character.name} executes ${enemy.isBoss ? 'Boss' : 'enemy'}!', _logColorCrit);
+        enemy.hp = 0;
+      }
     }
 
     // Apply position resets (Death Grip, knockback)
     for (final entry in result.enemyPositionResets.entries) {
       final enemy = enemies.where((e) => e.id == entry.key).firstOrNull;
-      if (enemy != null) enemy.position = entry.value;
+      if (enemy != null) {
+        final fromPct = (enemy.position * 100).round();
+        final toPct = (entry.value * 100).round();
+        _logCombat('${tower.character.name} pulls ${enemy.isBoss ? 'Boss' : 'enemy'} back ($fromPct% → $toPct%)', tower.color);
+        enemy.position = entry.value;
+      }
     }
 
-    // Apply status effects
+    // Apply status effects (batch log by type)
+    var dotCount = 0;
+    var slowCount = 0;
+    double dotDmg = 0;
+    double dotDur = 0;
+    double slowAmt = 0;
+    double slowDur = 0;
     for (final effect in result.statusEffects) {
       final enemy = enemies.where((e) => e.id == effect.sourceId).firstOrNull;
-      if (enemy != null) enemy.statusEffects.add(effect);
+      if (enemy != null) {
+        enemy.statusEffects.add(effect);
+        if (effect.type == 'dot') {
+          dotCount++;
+          dotDmg = effect.dotDamage;
+          dotDur = effect.remaining;
+        } else if (effect.type == 'slow') {
+          slowCount++;
+          slowAmt = effect.slowAmount;
+          slowDur = effect.remaining;
+        }
+      }
+    }
+    if (dotCount > 0) {
+      final targets = dotCount > 1 ? ' to $dotCount enemies' : '';
+      _logCombat('  ↳ applies DoT$targets (${dotDmg.round()}/tick, ${dotDur.toStringAsFixed(1)}s)', _logColorDot);
+    }
+    if (slowCount > 0) {
+      final targets = slowCount > 1 ? ' on $slowCount enemies' : '';
+      _logCombat('  ↳ slows$targets ${(slowAmt * 100).round()}% for ${slowDur.toStringAsFixed(1)}s', _logColorSlow);
     }
 
     // Apply tower buffs (to caster or target tower)
     if (result.towerBuffs.isNotEmpty) {
-      final targetTower = ability.targeting == 'tower'
-          ? (towerIndex >= 0 && towerIndex < towers.length ? towers[towerIndex] : tower)
+      final targetTower = ability.targeting == 'tower' && targetTowerIndex != null
+          ? (targetTowerIndex >= 0 && targetTowerIndex < towers.length ? towers[targetTowerIndex] : tower)
           : tower;
       targetTower.abilityBuffs.addAll(result.towerBuffs);
+      for (final buff in result.towerBuffs) {
+        _logCombat('  ↳ ${targetTower.character.name} gains ${_buffLabel(buff)} for ${buff.remaining.toStringAsFixed(1)}s', _logColorBuff);
+      }
     }
 
     // Apply all-tower buffs
@@ -1128,18 +1349,38 @@ class TdGameState extends ChangeNotifier {
           ));
         }
       }
+      _logCombat('  ↳ all towers gain ${_buffLabel(buff)} for ${buff.remaining.toStringAsFixed(1)}s', _logColorBuff);
     }
 
     // Add summoned pets
+    if (result.summonedPets.isNotEmpty) {
+      for (final pet in result.summonedPets) {
+        _logCombat('  ↳ summons pet (${pet.damageMultiplier}x dmg, ${pet.remaining.toStringAsFixed(1)}s)', _logColorBuff);
+      }
+    }
     summonedPets.addAll(result.summonedPets);
 
     // Add lane blocks
+    if (result.laneBlocks.isNotEmpty) {
+      for (final block in result.laneBlocks) {
+        _logCombat('  ↳ blocks lane ${block.laneIndex + 1} for ${block.remaining.toStringAsFixed(1)}s', _logColorBuff);
+      }
+    }
     laneBlocks.addAll(result.laneBlocks);
 
     // Add burn zones
+    if (result.burnZones.isNotEmpty) {
+      for (final zone in result.burnZones) {
+        _logCombat('  ↳ burn zone in lane ${zone.laneIndex + 1} (${zone.damagePerTick.round()}/tick, ${zone.remaining.toStringAsFixed(1)}s)', _logColorDot);
+      }
+    }
     abilityBurnZones.addAll(result.burnZones);
 
     // Apply stuns
+    if (result.stunnedLanes.isNotEmpty) {
+      final lanes = result.stunnedLanes.map((l) => '${l + 1}').join(', ');
+      _logCombat('  ↳ stuns lane $lanes for ${result.stunDuration.toStringAsFixed(1)}s', _logColorSlow);
+    }
     for (final lane in result.stunnedLanes) {
       _laneStunTimers[lane] = result.stunDuration;
     }
@@ -1149,33 +1390,45 @@ class TdGameState extends ChangeNotifier {
       for (final t in towers) {
         t.activeCooldownRemaining *= (1.0 - result.cooldownReductionPct);
       }
+      _logCombat('  ↳ reduces all cooldowns by ${(result.cooldownReductionPct * 100).round()}%', _logColorBuff);
     }
 
     // Apply stealth
     if (result.applyStealthToTower) {
       tower.isStealthed = true;
       tower.stealthTimer = result.stealthDuration;
+      _logCombat('  ↳ ${tower.character.name} enters stealth for ${result.stealthDuration.toStringAsFixed(1)}s', _logColorBuff);
     }
 
     // Empower next attack
     if (result.empowerNextAttackMult != null) {
       tower.empoweredNextAttackMult = result.empowerNextAttackMult;
       tower.empoweredNextAttackStun = result.empowerNextAttackStun;
+      _logCombat('  ↳ next attack empowered ${result.empowerNextAttackMult!.toStringAsFixed(1)}x', _logColorBuff);
     }
 
     // Shapeshift
     if (result.shapeshiftForm != null) {
       tower.currentForm = result.shapeshiftForm;
       tower.shapeshiftTimer = result.shapeshiftDuration;
+      _logCombat('  ↳ shifts to ${result.shapeshiftForm} form for ${result.shapeshiftDuration.toStringAsFixed(1)}s', _logColorBuff);
     }
 
     // Transform (Voidform)
     if (result.isTransform && result.transformDuration > 0) {
-      tower.abilityBuffs.add(TowerAbilityBuff(
-        type: 'damage_multiplier',
-        value: 1.0, // base, stacking builds over time
-        remaining: result.transformDuration,
-      ));
+      // Map archetype string to enum
+      final archMap = {
+        'melee': TowerArchetype.melee,
+        'ranged': TowerArchetype.ranged,
+        'support': TowerArchetype.support,
+        'aoe': TowerArchetype.aoe,
+      };
+      tower.transformArchetype = archMap[result.transformArchetype] ?? TowerArchetype.ranged;
+      tower.transformTargeting = result.transformTargeting;
+      tower.transformTimer = result.transformDuration;
+      tower.transformStackingDmgPerHit = result.stackingDamagePerHit;
+      tower.transformStackingBonus = 0;
+      _logCombat('  ↳ transforms to ${result.transformArchetype} for ${result.transformDuration.toStringAsFixed(1)}s', _logColorBuff);
     }
 
     // Channeled abilities
@@ -1190,7 +1443,9 @@ class TdGameState extends ChangeNotifier {
         ));
       }
       // Apply channel damage immediately (simplified: all hits at once)
-      final channelDamage = tower.effectiveDamage * result.channelDamagePerHit;
+      // Use baseDamage, not effectiveDamage — channeled abilities are not
+      // reduced by tower debuffs (Bursting slows attack speed, not ability damage)
+      final channelDamage = tower.baseDamage * result.channelDamagePerHit;
       final liveEnemies = enemies.where((e) => !e.isDead && e.laneIndex == tower.laneIndex).toList();
       if (liveEnemies.isNotEmpty) {
         // Target the closest enemy (melee channel)
@@ -1210,16 +1465,24 @@ class TdGameState extends ChangeNotifier {
           attackColor: tower.attackColor,
         ));
       }
+      // Always log channel info (even if no enemies in lane to hit)
+      final totalChannelDmg = (channelDamage * result.channelHits).round();
+      _logCombat('  ↳ channels ${result.channelHits} hits for $totalChannelDmg total', tower.color);
+      if (result.immuneDuringChannel) {
+        _logCombat('  ↳ immune during channel (${result.channelDuration.toStringAsFixed(1)}s)', _logColorBuff);
+      }
     }
 
     // Random cast (Convoke) — simplified: apply all random effects immediately
     if (result.isRandomCast) {
+      _logCombat('  ↳ casts ${result.randomCastCount} random spells!', _logColorBuff);
       _processConvoke(tower, result.randomCastCount);
     }
 
     // Combo points (Shadow Blades) — set up tracking
     if (result.enableComboPoints) {
       tower.comboPoints = 0;
+      _logCombat('  ↳ combo system active (finisher at ${result.comboThreshold} pts, ${result.comboFinisherMult.toStringAsFixed(1)}x)', _logColorBuff);
     }
 
     // Trigger on_buff_ally charge for support abilities
@@ -1232,13 +1495,21 @@ class TdGameState extends ChangeNotifier {
   void _processConvoke(TdTower caster, int count) {
     final liveEnemies = enemies.where((e) => !e.isDead && e.position >= 0).toList();
     final damage = caster.effectiveDamage;
+    var totalDmg = 0.0;
+    var dmgCasts = 0;
+    var dotCasts = 0;
+    var cleanseCasts = 0;
+    var buffCasts = 0;
 
     for (var i = 0; i < count; i++) {
       final roll = _rng.nextInt(16);
       if (roll < 4 && liveEnemies.isNotEmpty) {
         // Damage random enemy
         final target = liveEnemies[_rng.nextInt(liveEnemies.length)];
-        target.hp = (target.hp - damage * 2.0).clamp(0, target.maxHp);
+        final dmg = damage * 2.0;
+        target.hp = (target.hp - dmg).clamp(0, target.maxHp);
+        totalDmg += dmg;
+        dmgCasts++;
       } else if (roll < 7 && liveEnemies.isNotEmpty) {
         // DoT random enemy
         final target = liveEnemies[_rng.nextInt(liveEnemies.length)];
@@ -1248,6 +1519,7 @@ class TdGameState extends ChangeNotifier {
           params: {'dotDamage': damage * 0.3, 'tickInterval': 1.0},
           remaining: 3.0,
         ));
+        dotCasts++;
       } else if (roll < 10) {
         // Cleanse random tower
         final debuffed = towers.where((t) => t.isDebuffed).toList();
@@ -1255,6 +1527,7 @@ class TdGameState extends ChangeNotifier {
           final target = debuffed[_rng.nextInt(debuffed.length)];
           target.isDebuffed = false;
           target.debuffTimer = 0;
+          cleanseCasts++;
         }
       } else if (roll < 13) {
         // Buff random tower damage
@@ -1264,6 +1537,7 @@ class TdGameState extends ChangeNotifier {
           target.abilityBuffs.add(TowerAbilityBuff(
             type: 'damage_multiplier', value: 1.2, remaining: 4.0,
           ));
+          buffCasts++;
         }
       } else {
         // Buff random tower speed
@@ -1273,9 +1547,18 @@ class TdGameState extends ChangeNotifier {
           target.abilityBuffs.add(TowerAbilityBuff(
             type: 'attack_speed_multiplier', value: 0.8, remaining: 4.0,
           ));
+          buffCasts++;
         }
       }
     }
+
+    // Log Convoke summary
+    final parts = <String>[];
+    if (dmgCasts > 0) parts.add('${dmgCasts}x dmg (${totalDmg.round()})');
+    if (dotCasts > 0) parts.add('${dotCasts}x DoT');
+    if (cleanseCasts > 0) parts.add('${cleanseCasts}x cleanse');
+    if (buffCasts > 0) parts.add('${buffCasts}x buff');
+    _logCombat('  ↳ ${parts.join(', ')}', _logColorBuff);
   }
 
   // -----------------------------------------------------------------------
@@ -1298,10 +1581,12 @@ class TdGameState extends ChangeNotifier {
     }
 
     _emitSfx(TdSfxEventType.waveStart);
+    _logCombat('── Wave $currentWave/$totalWaves started ──', _logColorWave);
 
     if (currentWave == totalWaves) {
       _spawnBossWave(baseHp, baseSpeed, dungeon);
       _emitSfx(TdSfxEventType.bossSpawn);
+      _logCombat('★ BOSS SPAWNS!', _logColorBoss);
     } else {
       _spawnRegularWave(baseHp, baseSpeed, dungeon);
     }
@@ -1486,6 +1771,7 @@ class TdGameState extends ChangeNotifier {
             modifierState: {'has_resurrected': true},
           )..position = deathResult.position);
           _emitSfx(TdSfxEventType.resurrect);
+          _logCombat('Enemy resurrects with ${deathResult.hp.round()} HP!', _logColorBoss);
           e.hp = -1;
           continue;
         }
@@ -1510,10 +1796,13 @@ class TdGameState extends ChangeNotifier {
             )..position = split.position + i * 0.05);
           }
           _emitSfx(TdSfxEventType.splitOnDeath);
+          _logCombat('Boss splits into ${split.count} fragments!', _logColorBoss);
         }
         _emitSfx(TdSfxEventType.bossDeath);
+        _logCombat('★ BOSS DEFEATED!', _logColorWave);
       } else {
         _emitSfx(TdSfxEventType.enemyDeath);
+        _logCombat('Enemy slain', _logColorDeath);
       }
 
       // Trigger on_kill ultimate charge for towers in the same lane
@@ -1545,6 +1834,7 @@ class TdGameState extends ChangeNotifier {
         }
       }
       _emitSfx(TdSfxEventType.bolsteringTrigger);
+      _logCombat('Bolstering: enemies +${((config.bolsteringSpeedBuff - 1) * 100).round()}% speed in lane ${enemy.laneIndex + 1}', _logColorAffix);
     }
 
     // Bursting — towers in the dead enemy's lane are debuffed for 2 seconds.
@@ -1559,6 +1849,7 @@ class TdGameState extends ChangeNotifier {
         }
       }
       _emitSfx(TdSfxEventType.burstingTrigger);
+      _logCombat('Bursting: towers debuffed ${config.burstingDebuffDuration.toStringAsFixed(1)}s in lane ${enemy.laneIndex + 1}', _logColorAffix);
     }
 
     // Sanguine — drop a healing pool at the enemy's position.
@@ -1568,6 +1859,7 @@ class TdGameState extends ChangeNotifier {
         position: enemy.position,
       ));
       _emitSfx(TdSfxEventType.sanguineTrigger);
+      _logCombat('Sanguine pool spawned in lane ${enemy.laneIndex + 1}', _logColorAffix);
     }
   }
 
@@ -1597,6 +1889,7 @@ class TdGameState extends ChangeNotifier {
 
     if (healed && _sanguineHealSfxCooldown <= 0) {
       _emitSfx(TdSfxEventType.sanguineHeal);
+      _logCombat('Sanguine heals enemies (${(config.sanguineHealPerSecond * 100).round()}% HP/s)', _logColorHeal);
       _sanguineHealSfxCooldown = 1.0; // play at most once per second
     }
 

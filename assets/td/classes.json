@@ -224,12 +224,12 @@
       },
       "ultimateAbility": {
         "name": "Touch of Death",
-        "description": "Instantly kill any non-boss enemy. Deal 30% max HP to bosses.",
+        "description": "Instantly kill any non-boss enemy. Deal 15% max HP to bosses.",
         "targeting": "enemy",
-        "charge": { "trigger": "on_attack", "amount": 1, "max": 12 },
+        "charge": { "trigger": "on_attack", "amount": 1, "max": 15 },
         "effects": [
           { "type": "instant_kill", "condition": { "not_boss": true } },
-          { "type": "percent_hp_damage", "value": 0.30, "condition": { "is_boss": true } }
+          { "type": "percent_hp_damage", "value": 0.15, "condition": { "is_boss": true } }
         ]
       }
     },
@@ -288,12 +288,12 @@
       "attackColor": "#3FC7EB",
       "activeAbility": {
         "name": "Meteor",
-        "description": "Call down a meteor on a lane dealing 4x AoE damage. Leaves a burn zone for 4s.",
+        "description": "Call down a meteor on a lane dealing 5x AoE damage. Leaves a burn zone for 4s.",
         "targeting": "lane",
         "cooldown": 14.0,
         "initialCooldownPct": 0.33,
         "effects": [
-          { "type": "damage_lane", "damage_multiplier": 4.0 },
+          { "type": "damage_lane", "damage_multiplier": 5.0 },
           { "type": "burn_zone", "damage_per_tick": 0.3, "tick_interval": 1.0, "duration": 4.0 }
         ]
       },

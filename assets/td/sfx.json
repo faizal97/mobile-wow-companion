@@ -1,0 +1,142 @@
+{
+  "_version": 1,
+  "defaults": {
+    "class": {
+      "attackHit": "td/sfx/class/default_hit.mp3",
+      "attackCrit": "td/sfx/class/default_crit.mp3",
+      "chargeAttack": "td/sfx/class/default_charge.mp3",
+      "chainDamage": "td/sfx/class/default_chain.mp3",
+      "dotApply": "td/sfx/class/default_dot.mp3",
+      "slowApply": "td/sfx/class/default_slow.mp3",
+      "buffApply": "td/sfx/class/default_buff.mp3",
+      "cleanseApply": "td/sfx/class/default_cleanse.mp3",
+      "chargeRelease": "td/sfx/class/default_charge_release.mp3"
+    },
+    "dungeon": {
+      "enemyDeath": "td/sfx/dungeon/default_enemy_death.mp3",
+      "enemySpawn": "td/sfx/dungeon/default_enemy_spawn.mp3",
+      "bossDeath": "td/sfx/dungeon/default_boss_death.mp3",
+      "bossSpawn": "td/sfx/dungeon/default_boss_spawn.mp3",
+      "waveStart": "td/sfx/dungeon/default_wave_start.mp3",
+      "waveComplete": "td/sfx/dungeon/default_wave_complete.mp3",
+      "enemyLeak": "td/sfx/dungeon/default_enemy_leak.mp3",
+      "shieldBreak": "td/sfx/dungeon/default_shield_break.mp3",
+      "phaseShift": "td/sfx/dungeon/default_phase_shift.mp3",
+      "resurrect": "td/sfx/dungeon/default_resurrect.mp3",
+      "laneSwitch": "td/sfx/dungeon/default_lane_switch.mp3",
+      "victory": "td/sfx/dungeon/default_victory.mp3",
+      "defeat": "td/sfx/dungeon/default_defeat.mp3",
+      "sanguineHeal": "td/sfx/dungeon/default_sanguine_heal.mp3",
+      "enemyAccelerate": "td/sfx/dungeon/default_enemy_accelerate.mp3"
+    },
+    "ui": {
+      "towerPlace": "td/sfx/ui/tower_place.mp3",
+      "towerMove": "td/sfx/ui/tower_move.mp3",
+      "upgradePurchase": "td/sfx/ui/upgrade_purchase.mp3",
+      "buttonTap": "td/sfx/ui/button_tap.mp3",
+      "gameStart": "td/sfx/ui/game_start.mp3",
+      "nextWave": "td/sfx/ui/next_wave.mp3",
+      "rouletteTick": "td/sfx/ui/roulette_tick.mp3",
+      "rouletteReveal": "td/sfx/ui/roulette_reveal.mp3",
+      "compSelect": "td/sfx/ui/comp_select.mp3",
+      "compDeselect": "td/sfx/ui/comp_deselect.mp3",
+      "keystoneInsert": "td/sfx/ui/keystone_insert.mp3"
+    }
+  },
+  "classes": {
+    "warrior": {
+      "attackHit": "td/sfx/class/warrior_hit.mp3",
+      "attackCrit": "td/sfx/class/warrior_crit.mp3"
+    },
+    "rogue": {
+      "attackHit": "td/sfx/class/rogue_hit.mp3",
+      "attackCrit": "td/sfx/class/rogue_crit.mp3"
+    },
+    "death knight": {
+      "attackHit": "td/sfx/class/death_knight_hit.mp3"
+    },
+    "paladin": {
+      "attackHit": "td/sfx/class/paladin_hit.mp3"
+    },
+    "monk": {
+      "attackHit": "td/sfx/class/monk_hit.mp3"
+    },
+    "demon hunter": {
+      "attackHit": "td/sfx/class/demon_hunter_hit.mp3"
+    },
+    "mage": {
+      "attackHit": "td/sfx/class/mage_hit.mp3"
+    },
+    "hunter": {
+      "attackHit": "td/sfx/class/hunter_hit.mp3"
+    },
+    "warlock": {
+      "attackHit": "td/sfx/class/warlock_hit.mp3"
+    },
+    "evoker": {
+      "attackHit": "td/sfx/class/evoker_hit.mp3"
+    },
+    "priest": {
+      "attackHit": "td/sfx/class/priest_hit.mp3"
+    },
+    "druid": {
+      "attackHit": "td/sfx/class/druid_hit.mp3"
+    },
+    "shaman": {
+      "attackHit": "td/sfx/class/shaman_hit.mp3"
+    }
+  },
+  "dungeons": {
+    "windrunner_spire": {
+      "enemyDeath": "td/sfx/dungeon/ws_enemy_death.mp3"
+    },
+    "murder_row": {
+      "enemyDeath": "td/sfx/dungeon/mr_enemy_death.mp3"
+    },
+    "den_of_nalorakk": {
+      "enemyDeath": "td/sfx/dungeon/dn_enemy_death.mp3"
+    }
+  },
+  "affixes": {
+    "bursting": {
+      "trigger": "td/sfx/affix/bursting.mp3"
+    },
+    "sanguine": {
+      "trigger": "td/sfx/affix/sanguine.mp3"
+    },
+    "bolstering": {
+      "trigger": "td/sfx/affix/bolstering.mp3"
+    }
+  },
+  "bossMechanics": {
+    "fire_zone": {
+      "spawn": "td/sfx/boss/fire_zone_spawn.mp3",
+      "tick": "td/sfx/boss/fire_zone_tick.mp3"
+    },
+    "teleport_lanes": {
+      "trigger": "td/sfx/boss/teleport.mp3"
+    },
+    "enrage": {
+      "trigger": "td/sfx/boss/enrage.mp3"
+    },
+    "summon_adds": {
+      "trigger": "td/sfx/boss/summon_adds.mp3"
+    },
+    "reflect_damage": {
+      "on": "td/sfx/boss/reflect_on.mp3",
+      "off": "td/sfx/boss/reflect_off.mp3"
+    },
+    "knockback_tower": {
+      "trigger": "td/sfx/boss/knockback.mp3"
+    },
+    "wind_push": {
+      "trigger": "td/sfx/boss/wind_push.mp3"
+    },
+    "stacking_damage": {
+      "tick": "td/sfx/boss/stacking_tick.mp3"
+    },
+    "split_on_death": {
+      "trigger": "td/sfx/boss/split.mp3"
+    }
+  }
+}

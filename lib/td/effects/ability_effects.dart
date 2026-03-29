@@ -37,6 +37,7 @@ class AbilityResult {
   // Transform (Voidform)
   final bool isTransform;
   final String? transformArchetype;
+  final String? transformTargeting;
   final double transformDuration;
   final double stackingDamagePerHit;
   // Random cast (Convoke)
@@ -75,6 +76,7 @@ class AbilityResult {
     this.shapeshiftDuration = 0,
     this.isTransform = false,
     this.transformArchetype,
+    this.transformTargeting,
     this.transformDuration = 0,
     this.stackingDamagePerHit = 0,
     this.isRandomCast = false,
@@ -129,6 +131,7 @@ class AbilityEffectProcessor {
     double shapeshiftDuration = 0;
     bool isTransform = false;
     String? transformArchetype;
+    String? transformTargeting;
     double transformDuration = 0;
     double stackingDamagePerHit = 0;
     bool isRandomCast = false;
@@ -400,6 +403,8 @@ class AbilityEffectProcessor {
           isTransform = true;
           transformArchetype =
               effect.params['archetype'] as String? ?? 'ranged';
+          transformTargeting =
+              effect.params['targeting'] as String?;
           transformDuration = ability.duration;
           stackingDamagePerHit =
               (effect.params['stacking_damage_per_hit'] as num?)?.toDouble() ??
@@ -456,6 +461,7 @@ class AbilityEffectProcessor {
       shapeshiftDuration: shapeshiftDuration,
       isTransform: isTransform,
       transformArchetype: transformArchetype,
+      transformTargeting: transformTargeting,
       transformDuration: transformDuration,
       stackingDamagePerHit: stackingDamagePerHit,
       isRandomCast: isRandomCast,

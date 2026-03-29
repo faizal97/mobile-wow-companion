@@ -5,6 +5,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/app_theme.dart';
 import '../data/effect_types.dart';
+import '../data/td_sfx_registry.dart';
+import '../services/td_audio_service.dart';
 import 'td_dungeon_briefing_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -17,11 +19,13 @@ import 'td_dungeon_briefing_screen.dart';
 class TdDungeonRouletteScreen extends StatefulWidget {
   final List<TdDungeonDef> dungeons;
   final int keystoneLevel;
+  final TdSfxRegistry? sfxRegistry;
 
   const TdDungeonRouletteScreen({
     super.key,
     required this.dungeons,
     required this.keystoneLevel,
+    this.sfxRegistry,
   });
 
   @override
@@ -38,12 +42,14 @@ class _TdDungeonRouletteScreenState extends State<TdDungeonRouletteScreen>
 
   bool _landed = false;
   int _displayIndex = 0;
+  TdAudioService? _audio;
 
   static const int _totalCycles = 28; // total dungeon "frames" to show
 
   @override
   void initState() {
     super.initState();
+    _initAudio();
     final rng = Random();
     _targetIndex = rng.nextInt(widget.dungeons.length);
 
@@ -72,6 +78,7 @@ class _TdDungeonRouletteScreenState extends State<TdDungeonRouletteScreen>
       if (status == AnimationStatus.completed) {
         setState(() => _landed = true);
         _revealController.forward();
+        _audio?.playEvent(const TdSfxEvent(type: TdSfxEventType.rouletteReveal));
       }
     });
 
@@ -88,6 +95,14 @@ class _TdDungeonRouletteScreenState extends State<TdDungeonRouletteScreen>
     final idx = (curved * (_sequence.length - 1)).round().clamp(0, _sequence.length - 1);
     if (idx != _displayIndex) {
       setState(() => _displayIndex = idx);
+      _audio?.playEvent(const TdSfxEvent(type: TdSfxEventType.rouletteTick));
+    }
+  }
+
+  Future<void> _initAudio() async {
+    if (widget.sfxRegistry != null) {
+      _audio = TdAudioService(widget.sfxRegistry!);
+      await _audio!.init();
     }
   }
 
@@ -96,6 +111,7 @@ class _TdDungeonRouletteScreenState extends State<TdDungeonRouletteScreen>
     _spinController.removeListener(_onSpinTick);
     _spinController.dispose();
     _revealController.dispose();
+    _audio?.dispose();
     super.dispose();
   }
 

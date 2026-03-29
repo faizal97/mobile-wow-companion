@@ -10,6 +10,8 @@ import '../data/td_balance_config.dart';
 import '../data/td_class_registry.dart';
 import '../data/td_hero_registry.dart';
 import '../data/td_run_state.dart';
+import '../data/td_sfx_registry.dart';
+import '../services/td_audio_service.dart';
 
 // ---------------------------------------------------------------------------
 // TdUpgradeScreen — spend Valor on tower upgrades between keys
@@ -21,6 +23,7 @@ class TdUpgradeScreen extends StatefulWidget {
   final TdClassRegistry classRegistry;
   final TdHeroRegistry? heroRegistry;
   final TdBalanceConfig config;
+  final TdSfxRegistry? sfxRegistry;
 
   const TdUpgradeScreen({
     super.key,
@@ -29,6 +32,7 @@ class TdUpgradeScreen extends StatefulWidget {
     required this.classRegistry,
     this.heroRegistry,
     this.config = TdBalanceConfig.defaults,
+    this.sfxRegistry,
   });
 
   @override
@@ -38,6 +42,7 @@ class TdUpgradeScreen extends StatefulWidget {
 class _TdUpgradeScreenState extends State<TdUpgradeScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _entryController;
+  TdAudioService? _audio;
 
   TdRunState get _run => widget.runState;
   TdBalanceConfig get _cfg => widget.config;
@@ -49,17 +54,29 @@ class _TdUpgradeScreenState extends State<TdUpgradeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     )..forward();
+    _initAudio();
+  }
+
+  Future<void> _initAudio() async {
+    if (widget.sfxRegistry != null) {
+      _audio = TdAudioService(widget.sfxRegistry!);
+      await _audio!.init();
+    }
   }
 
   @override
   void dispose() {
     _entryController.dispose();
+    _audio?.dispose();
     super.dispose();
   }
 
   void _purchaseUpgrade(int characterId, UpgradeType type) {
     final success = _run.purchaseUpgrade(characterId, type, _cfg);
-    if (success) setState(() {});
+    if (success) {
+      _audio?.playEvent(const TdSfxEvent(type: TdSfxEventType.upgradePurchase));
+      setState(() {});
+    }
   }
 
   @override

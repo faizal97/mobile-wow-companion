@@ -8,6 +8,8 @@ import '../../theme/wow_class_colors.dart';
 import '../data/effect_types.dart';
 import '../data/td_class_registry.dart';
 import '../data/td_hero_registry.dart';
+import '../data/td_sfx_registry.dart';
+import '../services/td_audio_service.dart';
 import 'td_class_guide_screen.dart';
 import 'td_dungeon_briefing_screen.dart';
 
@@ -22,6 +24,7 @@ class TdCompSelectionScreen extends StatefulWidget {
   final int maxTowers;
   final TdClassRegistry classRegistry;
   final TdHeroRegistry? heroRegistry;
+  final TdSfxRegistry? sfxRegistry;
 
   const TdCompSelectionScreen({
     super.key,
@@ -31,6 +34,7 @@ class TdCompSelectionScreen extends StatefulWidget {
     required this.maxTowers,
     required this.classRegistry,
     this.heroRegistry,
+    this.sfxRegistry,
   });
 
   @override
@@ -40,6 +44,26 @@ class TdCompSelectionScreen extends StatefulWidget {
 class _TdCompSelectionScreenState extends State<TdCompSelectionScreen> {
   final Set<int> _selectedIds = {};
   String? _archetypeFilter; // null = all, 'melee', 'ranged', 'support', 'aoe'
+  TdAudioService? _audio;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAudio();
+  }
+
+  Future<void> _initAudio() async {
+    if (widget.sfxRegistry != null) {
+      _audio = TdAudioService(widget.sfxRegistry!);
+      await _audio!.init();
+    }
+  }
+
+  @override
+  void dispose() {
+    _audio?.dispose();
+    super.dispose();
+  }
 
   bool get _canDeploy => _selectedIds.length >= 3;
   bool get _atMax => _selectedIds.length >= widget.maxTowers;
@@ -59,13 +83,19 @@ class _TdCompSelectionScreenState extends State<TdCompSelectionScreen> {
   }
 
   void _toggle(int id) {
+    final wasSelected = _selectedIds.contains(id);
     setState(() {
-      if (_selectedIds.contains(id)) {
+      if (wasSelected) {
         _selectedIds.remove(id);
       } else if (!_atMax) {
         _selectedIds.add(id);
       }
     });
+    if (wasSelected) {
+      _audio?.playEvent(const TdSfxEvent(type: TdSfxEventType.compDeselect));
+    } else if (!wasSelected && _selectedIds.contains(id)) {
+      _audio?.playEvent(const TdSfxEvent(type: TdSfxEventType.compSelect));
+    }
   }
 
   void _deploy() {

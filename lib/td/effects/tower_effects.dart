@@ -58,12 +58,14 @@ class AttackResult {
   final List<EnemyStatusEffect> newStatusEffects;
   final bool isCharging; // true if tower is still charging (Evoker)
   final bool didCrit;
+  final bool hasCrossLaneHit; // true if any hit targeted an adjacent lane
 
   const AttackResult({
     this.hits = const [],
     this.newStatusEffects = const [],
     this.isCharging = false,
     this.didCrit = false,
+    this.hasCrossLaneHit = false,
   });
 }
 
@@ -98,6 +100,7 @@ class TowerEffectProcessor {
     required double chargeTimer,
     required double dt,
     required Random rng,
+    String? targetingOverride,
   }) {
     // -- 0. Support towers don't attack ---------------------------------------
     if (archetype == TowerArchetype.support) {
@@ -171,21 +174,31 @@ class TowerEffectProcessor {
 
     // -- 5. Normal targeting based on archetype --------------------------------
     List<({String id, double hp, double position, int lane})> targets;
-    switch (archetype) {
-      case TowerArchetype.melee:
-        // Closest to goal = highest position value.
-        candidateEnemies.sort((a, b) => b.position.compareTo(a.position));
-        targets = [candidateEnemies.first];
-      case TowerArchetype.ranged:
-        // Furthest from goal = lowest position value.
-        candidateEnemies.sort((a, b) => a.position.compareTo(b.position));
-        targets = [candidateEnemies.first];
-      case TowerArchetype.aoe:
-        // All enemies in the lane(s).
-        targets = List.of(candidateEnemies);
-      case TowerArchetype.support:
-        // Already handled above, but satisfy exhaustiveness.
-        return const AttackResult();
+
+    // Override targeting for transforms (e.g. Voidform highest_hp_any_lane)
+    if (targetingOverride == 'highest_hp_any_lane') {
+      // Target highest HP enemy across all lanes
+      final allEnemies = enemies.where((e) => e.hp > 0).toList()
+        ..sort((a, b) => b.hp.compareTo(a.hp));
+      targets = allEnemies.isNotEmpty ? [allEnemies.first] : [];
+      if (targets.isEmpty) return const AttackResult();
+    } else {
+      switch (archetype) {
+        case TowerArchetype.melee:
+          // Closest to goal = highest position value.
+          candidateEnemies.sort((a, b) => b.position.compareTo(a.position));
+          targets = [candidateEnemies.first];
+        case TowerArchetype.ranged:
+          // Furthest from goal = lowest position value.
+          candidateEnemies.sort((a, b) => a.position.compareTo(b.position));
+          targets = [candidateEnemies.first];
+        case TowerArchetype.aoe:
+          // All enemies in the lane(s).
+          targets = List.of(candidateEnemies);
+        case TowerArchetype.support:
+          // Already handled above, but satisfy exhaustiveness.
+          return const AttackResult();
+      }
     }
 
     // -- 6. Apply extra_targets -----------------------------------------------
@@ -277,6 +290,9 @@ class TowerEffectProcessor {
       hits: hits,
       newStatusEffects: statusEffects,
       didCrit: didCrit,
+      // Only flag cross-lane for passive cross-lane abilities (Fel Rush),
+      // not for targeting overrides (Voidform) where all-lane is expected
+      hasCrossLaneHit: targetingOverride == null && hits.any((h) => h.enemyLane != towerLane),
     );
   }
 
@@ -339,6 +355,7 @@ class TowerEffectProcessor {
     return AttackResult(
       hits: hits,
       didCrit: didCrit,
+      hasCrossLaneHit: hits.any((h) => h.enemyLane != towerLane),
     );
   }
 

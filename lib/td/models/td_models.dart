@@ -32,8 +32,8 @@ class TdTower {
           ? slotPositions[slotIndex]
           : 0.85; // default to back if unassigned
 
-  // Derived from classDef
-  TowerArchetype get archetype => classDef.archetype;
+  // Derived from classDef (with transform override)
+  TowerArchetype get archetype => transformArchetype ?? classDef.archetype;
   Color get color => WowClassColors.forClass(character.characterClass);
   Color get attackColor => classDef.attackColor;
   String get passiveName => classDef.passive.name;
@@ -104,6 +104,18 @@ class TdTower {
   String? currentForm;
   /// Remaining shapeshift duration.
   double shapeshiftTimer = 0;
+
+  // ---- Transform state (Voidform) ----
+  /// Override archetype during transform (null = use base).
+  TowerArchetype? transformArchetype;
+  /// Custom targeting during transform (e.g. 'highest_hp_any_lane').
+  String? transformTargeting;
+  /// Remaining transform duration.
+  double transformTimer = 0;
+  /// Stacking damage multiplier per consecutive hit during transform.
+  double transformStackingDmgPerHit = 0;
+  /// Current stacking damage bonus accumulated during transform.
+  double transformStackingBonus = 0;
 
   // ---- Convenience getters ----
 
@@ -227,9 +239,13 @@ class TdTower {
       case TowerArchetype.aoe:
         base = config.aoeAttackInterval;
     }
-    for (final effect in classDef.passive.effects) {
-      if (effect.type == 'attack_speed_multiplier') {
-        base *= effect.value;
+    // Only apply passive attack speed effects when not transformed
+    // (transformed towers use the new archetype's base speed)
+    if (transformArchetype == null) {
+      for (final effect in classDef.passive.effects) {
+        if (effect.type == 'attack_speed_multiplier') {
+          base *= effect.value;
+        }
       }
     }
     return base;
