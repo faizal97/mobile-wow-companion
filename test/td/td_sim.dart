@@ -93,6 +93,8 @@ class _DiskHeroRegistry extends TdHeroRegistry {
         passive: passive,
         empoweredPassive: empowered,
         attackColor: baseDef.attackColor,
+        activeAbility: baseDef.activeAbility,
+        ultimateAbility: baseDef.ultimateAbility,
       );
 
       _heroCharacters.add(WowCharacter(

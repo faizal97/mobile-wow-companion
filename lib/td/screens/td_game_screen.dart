@@ -11,7 +11,9 @@ import '../data/effect_types.dart';
 import '../data/td_class_registry.dart';
 import '../data/td_hero_registry.dart';
 import '../data/td_run_state.dart';
+import '../data/td_sfx_registry.dart';
 import '../models/td_models.dart';
+import '../services/td_audio_service.dart';
 import '../td_game_state.dart';
 import 'td_dungeon_briefing_screen.dart';
 
@@ -27,6 +29,7 @@ class TdGameScreen extends StatefulWidget {
   final TdHeroRegistry? heroRegistry;
   final List<TdDungeonDef> dungeons; // rotation pool for roulette on victory
   final TdRunState? runState;
+  final TdSfxRegistry? sfxRegistry;
 
   const TdGameScreen({
     super.key,
@@ -37,6 +40,7 @@ class TdGameScreen extends StatefulWidget {
     this.heroRegistry,
     required this.dungeons,
     this.runState,
+    this.sfxRegistry,
   });
 
   @override
@@ -48,6 +52,8 @@ class _TdGameScreenState extends State<TdGameScreen>
   late final TdGameState _game;
   late final Ticker _ticker;
   Duration _lastElapsed = Duration.zero;
+  TdAudioService? _audio;
+  bool _showVolumeSlider = false;
 
   // Track which lane+slot is being hovered during a drag.
   int? _dragHoverLane;
@@ -66,12 +72,22 @@ class _TdGameScreenState extends State<TdGameScreen>
   void initState() {
     super.initState();
     _game = TdGameState();
+    _game.autocastAbilities = false; // Player controls abilities via UI
     _game.startRun(widget.characters, widget.keystoneLevel,
         dungeon: widget.dungeon, classRegistry: widget.classRegistry,
         heroRegistry: widget.heroRegistry, runState: widget.runState);
     _game.addListener(_onGameStateChanged);
     // Don't auto-start — let the player position towers first
     _ticker = createTicker(_onTick);
+    _initAudio();
+  }
+
+  Future<void> _initAudio() async {
+    if (widget.sfxRegistry != null) {
+      _audio = TdAudioService(widget.sfxRegistry!);
+      await _audio!.init();
+      if (mounted) setState(() {});
+    }
   }
 
   @override
@@ -79,6 +95,7 @@ class _TdGameScreenState extends State<TdGameScreen>
     _ticker.dispose();
     _game.removeListener(_onGameStateChanged);
     _game.dispose();
+    _audio?.dispose();
     super.dispose();
   }
 
@@ -91,6 +108,10 @@ class _TdGameScreenState extends State<TdGameScreen>
     _lastElapsed = elapsed;
     // Cap dt to avoid huge jumps after a pause.
     _game.tick(dt.clamp(0, 0.5));
+    // Play accumulated SFX events
+    if (_audio != null && _game.sfxEvents.isNotEmpty) {
+      _audio!.playEvents(_game.sfxEvents);
+    }
     setState(() {}); // repaint
   }
 
@@ -100,6 +121,10 @@ class _TdGameScreenState extends State<TdGameScreen>
       case TdGamePhase.victory:
       case TdGamePhase.defeat:
         _ticker.stop();
+        // Play any remaining SFX from the final tick
+        if (_audio != null && _game.sfxEvents.isNotEmpty) {
+          _audio!.playEvents(_game.sfxEvents);
+        }
         break;
       default:
         break;
@@ -170,19 +195,24 @@ class _TdGameScreenState extends State<TdGameScreen>
     return Scaffold(
       backgroundColor: AppTheme.background,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            _buildHeaderBar(),
-            if (_game.phase == TdGamePhase.setup) _buildSetupBanner(),
-            if (_game.phase == TdGamePhase.betweenWaves) _buildWaveClearBanner(),
-            if (_game.phase != TdGamePhase.setup && _game.phase != TdGamePhase.betweenWaves) _buildAffixBar(),
-            Expanded(child: _buildLanes()),
-            if (_game.phase == TdGamePhase.setup)
-              _buildSetupBottomBar()
-            else if (_game.phase == TdGamePhase.betweenWaves)
-              _buildBetweenWavesBottomBar()
-            else
-              _buildTowerInfoBar(),
+            Column(
+              children: [
+                _buildHeaderBar(),
+                if (_game.phase == TdGamePhase.setup) _buildSetupBanner(),
+                if (_game.phase == TdGamePhase.betweenWaves) _buildWaveClearBanner(),
+                if (_game.phase != TdGamePhase.setup && _game.phase != TdGamePhase.betweenWaves) _buildAffixBar(),
+                Expanded(child: _buildLanes()),
+                if (_game.phase == TdGamePhase.setup)
+                  _buildSetupBottomBar()
+                else if (_game.phase == TdGamePhase.betweenWaves)
+                  _buildBetweenWavesBottomBar()
+                else
+                  _buildTowerInfoBar(),
+              ],
+            ),
+            if (_showVolumeSlider) _buildVolumeSliderOverlay(),
           ],
         ),
       ),
@@ -261,7 +291,98 @@ class _TdGameScreenState extends State<TdGameScreen>
               color: livesColor,
             ),
           ),
+          if (_audio != null) ...[
+            const SizedBox(width: 8),
+            _buildVolumeControl(),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildVolumeControl() {
+    final vol = _audio?.volume ?? 0.7;
+    final icon = vol <= 0
+        ? Icons.volume_off_rounded
+        : vol < 0.5
+            ? Icons.volume_down_rounded
+            : Icons.volume_up_rounded;
+
+    return GestureDetector(
+      onTap: () => setState(() => _showVolumeSlider = !_showVolumeSlider),
+      child: Icon(icon, color: AppTheme.textSecondary, size: 18),
+    );
+  }
+
+  Widget _buildVolumeSliderOverlay() {
+    return Positioned(
+      top: 44,
+      right: 8,
+      child: GestureDetector(
+        onTap: () {}, // absorb taps on the overlay itself
+        child: Container(
+          width: 180,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceElevated,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.surfaceBorder),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: () {
+                  final newVol = (_audio?.volume ?? 0) > 0 ? 0.0 : 0.7;
+                  _audio?.setVolume(newVol);
+                  setState(() {});
+                },
+                child: Icon(
+                  (_audio?.volume ?? 0) <= 0
+                      ? Icons.volume_off_rounded
+                      : Icons.volume_up_rounded,
+                  color: AppTheme.textSecondary,
+                  size: 18,
+                ),
+              ),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    activeTrackColor: const Color(0xFFA335EE),
+                    inactiveTrackColor: AppTheme.surfaceBorder,
+                    thumbColor: const Color(0xFFA335EE),
+                    overlayColor: const Color(0xFFA335EE).withValues(alpha: 0.2),
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  ),
+                  child: Slider(
+                    value: _audio?.volume ?? 0.7,
+                    min: 0,
+                    max: 1,
+                    onChanged: (v) {
+                      _audio?.setVolume(v);
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ),
+              Text(
+                '${((_audio?.volume ?? 0.7) * 100).round()}',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1181,76 +1302,200 @@ class _TdGameScreenState extends State<TdGameScreen>
   // 6. Tower info bar
   // -----------------------------------------------------------------------
 
+  // ---- Targeting mode state ----
+  bool _isTargeting = false;
+  int _targetingTowerIndex = -1;
+  bool _targetingIsUltimate = false;
+  String _targetingType = ''; // "enemy", "lane", "tower"
+
+  void _startTargeting(int towerIndex, bool isUltimate) {
+    final tower = _game.towers[towerIndex];
+    final ability = isUltimate ? tower.ultimateAbility : tower.activeAbility;
+    if (ability == null) return;
+    setState(() {
+      _isTargeting = true;
+      _targetingTowerIndex = towerIndex;
+      _targetingIsUltimate = isUltimate;
+      _targetingType = ability.targeting;
+    });
+  }
+
+  void _cancelTargeting() {
+    setState(() {
+      _isTargeting = false;
+      _targetingTowerIndex = -1;
+    });
+  }
+
+  void _executeTargetedAbility({String? enemyId, int? lane, int? towerIdx}) {
+    if (_targetingIsUltimate) {
+      _game.castUltimate(_targetingTowerIndex,
+          targetEnemyId: enemyId, targetLane: lane, targetTowerIndex: towerIdx);
+    } else {
+      _game.castActiveAbility(_targetingTowerIndex,
+          targetEnemyId: enemyId, targetLane: lane, targetTowerIndex: towerIdx);
+    }
+    _cancelTargeting();
+  }
+
   Widget _buildTowerInfoBar() {
     final scale = _uiScale;
     return Container(
       color: AppTheme.surface,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: _game.towers.map((tower) {
+        children: List.generate(_game.towers.length, (i) {
+          final tower = _game.towers[i];
           final towerColor = tower.color;
           return Expanded(
-            child: GestureDetector(
-              onTap: () => _showTowerInfo(tower),
-              child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 28 * scale,
-                  height: 28 * scale,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: towerColor.withValues(alpha: 0.50),
-                      width: 1.5,
+            child: _buildAbilityCell(tower, i, towerColor, scale),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildAbilityCell(TdTower tower, int index, Color towerColor, double scale) {
+    final active = tower.activeAbility;
+    final ultimate = tower.ultimateAbility;
+    final cellWidth = 52.0 * scale;
+
+    return GestureDetector(
+      onTap: () {
+        // Tap = cast active ability
+        if (active == null || !tower.canUseActive) return;
+        if (active.isInstant) {
+          _game.castActiveAbility(index);
+        } else {
+          _startTargeting(index, false);
+        }
+      },
+      onVerticalDragEnd: (details) {
+        // Swipe up = cast ultimate
+        if (details.primaryVelocity != null && details.primaryVelocity! < -100) {
+          if (ultimate == null || !tower.canUseUltimate) return;
+          if (ultimate.isInstant) {
+            _game.castUltimate(index);
+          } else {
+            _startTargeting(index, true);
+          }
+        }
+      },
+      child: SizedBox(
+        width: cellWidth,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Active ability button with cooldown sweep
+            SizedBox(
+              width: 36 * scale,
+              height: 36 * scale,
+              child: Stack(
+                children: [
+                  // Background circle
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppTheme.surface,
+                      border: Border.all(
+                        color: tower.canUseActive
+                            ? towerColor.withValues(alpha: 0.8)
+                            : AppTheme.textTertiary.withValues(alpha: 0.3),
+                        width: tower.canUseActive ? 2.0 : 1.0,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        active?.name.substring(0, 1) ?? '?',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 14 * scale,
+                          fontWeight: FontWeight.w700,
+                          color: tower.canUseActive
+                              ? towerColor
+                              : AppTheme.textTertiary,
+                        ),
+                      ),
                     ),
                   ),
-                  child: ClipOval(
-                    child: tower.character.avatarUrl != null
-                        ? (tower.character.avatarUrl!.startsWith('asset:')
-                            ? Image.asset(
-                                tower.character.avatarUrl!.substring(6),
-                                fit: BoxFit.cover,
-                                width: 28 * scale,
-                                height: 28 * scale,
-                                errorBuilder: (_, __, ___) => _infoBarFallback(tower, towerColor),
-                              )
-                            : CachedNetworkImage(
-                                imageUrl: tower.character.avatarUrl!,
-                                fit: BoxFit.cover,
-                                width: 28 * scale,
-                                height: 28 * scale,
-                                placeholder: (_, __) => _infoBarFallback(tower, towerColor),
-                                errorWidget: (_, __, ___) => _infoBarFallback(tower, towerColor),
-                              ))
-                        : _infoBarFallback(tower, towerColor),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  tower.character.name.length > 8
-                      ? '${tower.character.name.substring(0, 7)}...'
-                      : tower.character.name,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textSecondary,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  'L${tower.laneIndex + 1}${tower.slotIndex >= 0 ? ' ${const ['F', 'M', 'B'][tower.slotIndex.clamp(0, 2)]}' : ''} \u00b7 ${tower.archetype.name}',
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 9,
-                    color: AppTheme.textTertiary,
-                  ),
-                ),
-              ],
+                  // Cooldown sweep overlay
+                  if (active != null && tower.activeCooldownRemaining > 0)
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: _CooldownSweepPainter(
+                          progress: tower.activeCooldownRemaining / active.cooldown,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                  // Cooldown text
+                  if (active != null && tower.activeCooldownRemaining > 0)
+                    Center(
+                      child: Text(
+                        tower.activeCooldownRemaining.ceil().toString(),
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 11 * scale,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
+            // Divider in class color
+            Container(
+              width: 30 * scale,
+              height: 1,
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              color: towerColor.withValues(alpha: 0.4),
             ),
-          );
-        }).toList(),
+            // Ultimate with charge ring
+            SizedBox(
+              width: 28 * scale,
+              height: 28 * scale,
+              child: Stack(
+                children: [
+                  // Charge ring
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _ChargeRingPainter(
+                        progress: tower.ultimateChargeProgress,
+                        color: towerColor,
+                        isReady: tower.canUseUltimate,
+                      ),
+                    ),
+                  ),
+                  // Ultimate icon
+                  Center(
+                    child: Text(
+                      ultimate?.name.substring(0, 1) ?? '?',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 10 * scale,
+                        fontWeight: FontWeight.w700,
+                        color: tower.canUseUltimate
+                            ? const Color(0xFFFFD700)
+                            : AppTheme.textTertiary.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Tower name
+            Text(
+              tower.character.name.length > 6
+                  ? tower.character.name.substring(0, 5)
+                  : tower.character.name,
+              style: GoogleFonts.rajdhani(
+                fontSize: 8,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textTertiary,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1396,6 +1641,9 @@ class _TdGameScreenState extends State<TdGameScreen>
             onTap: allDeployed
                 ? () {
                     _game.beginGame();
+                    if (_audio != null && _game.sfxEvents.isNotEmpty) {
+                      _audio!.playEvents(_game.sfxEvents);
+                    }
                     _lastElapsed = Duration.zero;
                     _ticker.start();
                   }
@@ -2480,4 +2728,94 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ParticlePainter oldDelegate) => true;
+}
+
+// ---------------------------------------------------------------------------
+// Ability Dock painters
+// ---------------------------------------------------------------------------
+
+/// Radial clockwise sweep painter for active ability cooldowns.
+class _CooldownSweepPainter extends CustomPainter {
+  final double progress; // 0.0 = ready, 1.0 = full cooldown
+  final Color color;
+
+  _CooldownSweepPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0) return;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    // Sweep from top (12 o'clock) clockwise
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -pi / 2,
+      2 * pi * progress,
+      true,
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CooldownSweepPainter old) =>
+      old.progress != progress;
+}
+
+/// Ring painter showing ultimate charge progress.
+class _ChargeRingPainter extends CustomPainter {
+  final double progress; // 0.0 to 1.0
+  final Color color;
+  final bool isReady;
+
+  _ChargeRingPainter({
+    required this.progress,
+    required this.color,
+    required this.isReady,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 2;
+
+    // Background ring
+    final bgPaint = Paint()
+      ..color = Colors.white12
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    canvas.drawCircle(center, radius, bgPaint);
+
+    if (progress <= 0) return;
+
+    // Charge progress arc
+    final fgPaint = Paint()
+      ..color = isReady ? const Color(0xFFFFD700) : color.withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -pi / 2,
+      2 * pi * progress,
+      false,
+      fgPaint,
+    );
+
+    // Glow when ready
+    if (isReady) {
+      final glowPaint = Paint()
+        ..color = const Color(0xFFFFD700).withValues(alpha: 0.3)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+      canvas.drawCircle(center, radius, glowPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ChargeRingPainter old) =>
+      old.progress != progress || old.isReady != isReady;
 }

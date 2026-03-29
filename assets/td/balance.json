@@ -4,23 +4,23 @@
   "general": {
     "startingLives": 20,
     "totalWaves": 5,
-    "baseEnemyHp": 260,
-    "baseEnemySpeed": 0.10,
-    "waveHpScalePerWave": 0.12
+    "baseEnemyHp": 440,
+    "baseEnemySpeed": 0.115,
+    "waveHpScalePerWave": 0.16
   },
   "boss": {
-    "hpMultiplier": 6.0,
-    "speed": 0.04,
+    "hpMultiplier": 8.0,
+    "speed": 0.045,
     "addsCount": 3,
-    "addsHpFraction": 0.4,
+    "addsHpFraction": 0.45,
     "addsSpeedVariance": 0.05,
     "addsStaggerDistance": 0.12
   },
   "enemySpawn": {
-    "baseCount": 6,
+    "baseCount": 7,
     "countPerWave": 2,
     "minCount": 4,
-    "maxCount": 20,
+    "maxCount": 22,
     "speedVariance": 0.06,
     "staggerDistance": 0.10
   },
@@ -47,11 +47,11 @@
     }
   },
   "keystoneScaling": {
-    "linearPhaseEnd": 20,
-    "linearRate": 0.10,
-    "exponentialBase": 2.8,
-    "exponentialLinear": 0.25,
-    "exponentialQuadratic": 0.02
+    "linearPhaseEnd": 12,
+    "linearRate": 0.14,
+    "exponentialBase": 3.6,
+    "exponentialLinear": 0.35,
+    "exponentialQuadratic": 0.04
   },
   "affixes": {
     "thresholds": {

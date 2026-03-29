@@ -56,6 +56,132 @@ class TdTower {
   /// Seconds elapsed since last charge began (for charge_attack effect).
   double chargeTimer = 0;
 
+  // ---- Active ability state ----
+
+  /// Remaining cooldown for the active ability (seconds).
+  double activeCooldownRemaining = 0;
+
+  /// True while a channeled/timed active ability is running.
+  bool activeAbilityActive = false;
+
+  /// Remaining duration of active ability effect.
+  double activeAbilityTimer = 0;
+
+  // ---- Ultimate ability state ----
+
+  /// Current ultimate charge (0 to charge.max).
+  int ultimateCharge = 0;
+
+  /// True while a timed ultimate effect is running.
+  bool ultimateActive = false;
+
+  /// Remaining duration of ultimate effect.
+  double ultimateTimer = 0;
+
+  /// Timer for on_time charge trigger.
+  double ultimateChargeTickTimer = 0;
+
+  // ---- Ability buffs ----
+
+  /// Temporary buffs applied by abilities (damage mult, speed, immunity, etc.).
+  List<TowerAbilityBuff> abilityBuffs = [];
+
+  /// Whether this tower is in stealth (immune to enemy targeting).
+  bool isStealthed = false;
+
+  /// Remaining stealth duration.
+  double stealthTimer = 0;
+
+  /// Empowered next attack (from Vanish→Ambush etc.).
+  double? empoweredNextAttackMult;
+  double? empoweredNextAttackStun;
+
+  /// Combo point tracker (for Shadow Blades).
+  int comboPoints = 0;
+
+  // ---- Shapeshift state ----
+  /// Current shapeshift form name (null = base form).
+  String? currentForm;
+  /// Remaining shapeshift duration.
+  double shapeshiftTimer = 0;
+
+  // ---- Convenience getters ----
+
+  AbilityDef? get activeAbility => classDef.activeAbility;
+  AbilityDef? get ultimateAbility => classDef.ultimateAbility;
+
+  bool get canUseActive =>
+      activeAbility != null &&
+      activeCooldownRemaining <= 0 &&
+      !activeAbilityActive;
+
+  bool get canUseUltimate =>
+      ultimateAbility != null &&
+      ultimateAbility!.charge != null &&
+      ultimateCharge >= ultimateAbility!.charge!.max &&
+      !ultimateActive;
+
+  double get ultimateChargeProgress => ultimateAbility?.charge != null
+      ? (ultimateCharge / ultimateAbility!.charge!.max).clamp(0.0, 1.0)
+      : 0.0;
+
+  /// Initialize ability cooldowns at wave start.
+  void initAbilityCooldowns() {
+    if (activeAbility != null) {
+      activeCooldownRemaining =
+          activeAbility!.cooldown * activeAbility!.initialCooldownPct;
+    }
+    // Ultimate charge persists across waves; don't reset.
+  }
+
+  /// Add a charge to the ultimate if the trigger matches.
+  void addUltimateCharge(String trigger, {int amount = 0}) {
+    final ult = ultimateAbility;
+    if (ult == null || ult.charge == null) return;
+    if (ult.charge!.trigger != trigger) return;
+    final gain = amount > 0 ? amount : ult.charge!.amount;
+    ultimateCharge = (ultimateCharge + gain).clamp(0, ult.charge!.max);
+  }
+
+  /// Get the effective damage multiplier from active ability buffs.
+  double get abilityDamageMultiplier {
+    var mult = 1.0;
+    for (final buff in abilityBuffs) {
+      if (buff.type == 'damage_multiplier') mult *= buff.value;
+    }
+    if (empoweredNextAttackMult != null) {
+      mult *= empoweredNextAttackMult!;
+    }
+    return mult;
+  }
+
+  /// Get the effective attack speed multiplier from ability buffs.
+  double get abilitySpeedMultiplier {
+    var mult = 1.0;
+    for (final buff in abilityBuffs) {
+      if (buff.type == 'attack_speed_multiplier') mult *= buff.value;
+    }
+    return mult;
+  }
+
+  /// Whether this tower currently has guaranteed crit from an ability.
+  bool get hasAbilityGuaranteedCrit {
+    return abilityBuffs.any((b) => b.type == 'guaranteed_crit');
+  }
+
+  /// Get the guaranteed crit multiplier (from ability buff).
+  double get abilityCritMultiplier {
+    for (final buff in abilityBuffs) {
+      if (buff.type == 'guaranteed_crit') return buff.value;
+    }
+    return 2.0;
+  }
+
+  /// Whether this tower is immune to debuffs (from ability buff or passive).
+  bool get isAbilityImmuneToDebuff {
+    return abilityBuffs.any((b) => b.type == 'immune_to_debuff');
+  }
+
   TdTower({
     required this.character,
     required this.classDef,
@@ -125,6 +251,91 @@ class TdTower {
     }
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// TowerAbilityBuff — temporary buff from an ability
+// ---------------------------------------------------------------------------
+
+/// A temporary buff applied to a tower by an ability (active or ultimate).
+class TowerAbilityBuff {
+  /// Buff type: "damage_multiplier", "attack_speed_multiplier",
+  /// "immune_to_debuff", "immune_to_damage", "guaranteed_crit",
+  /// "cross_lane_attack".
+  final String type;
+  final double value;
+  double remaining; // seconds left
+
+  TowerAbilityBuff({
+    required this.type,
+    required this.value,
+    required this.remaining,
+  });
+
+  bool get isExpired => remaining <= 0;
+}
+
+// ---------------------------------------------------------------------------
+// SummonedPet — autonomous attacking entity from abilities
+// ---------------------------------------------------------------------------
+
+/// A pet summoned by an ability (e.g. Bestial Wrath, Summon Infernal).
+class SummonedPet {
+  final int ownerTowerIndex;
+  final String targeting; // "furthest_any_lane", "all_in_lane"
+  final double attackInterval;
+  final double damageMultiplier;
+  final double baseDamage;
+  double remaining;
+  double cooldown;
+  int? laneIndex; // for lane-specific pets
+
+  SummonedPet({
+    required this.ownerTowerIndex,
+    required this.targeting,
+    required this.attackInterval,
+    required this.damageMultiplier,
+    required this.baseDamage,
+    required this.remaining,
+    this.laneIndex,
+  }) : cooldown = 0;
+
+  bool get isExpired => remaining <= 0;
+}
+
+// ---------------------------------------------------------------------------
+// LaneBlock — blocks enemy movement in a lane
+// ---------------------------------------------------------------------------
+
+/// Blocks enemy movement in a lane for a duration (Army of the Dead).
+class LaneBlock {
+  final int laneIndex;
+  double remaining;
+
+  LaneBlock({required this.laneIndex, required this.remaining});
+  bool get isExpired => remaining <= 0;
+}
+
+// ---------------------------------------------------------------------------
+// BurnZone — persistent ground damage zone from abilities
+// ---------------------------------------------------------------------------
+
+/// A burn zone left by Meteor or similar abilities.
+class BurnZone {
+  final int laneIndex;
+  final double damagePerTick;
+  final double tickInterval;
+  double remaining;
+  double tickCooldown;
+
+  BurnZone({
+    required this.laneIndex,
+    required this.damagePerTick,
+    required this.tickInterval,
+    required this.remaining,
+  }) : tickCooldown = 0;
+
+  bool get isExpired => remaining <= 0;
 }
 
 // ---------------------------------------------------------------------------

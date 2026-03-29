@@ -112,6 +112,113 @@ class PassiveDef {
 }
 
 // ---------------------------------------------------------------------------
+// ChargeDef — ultimate charge configuration
+// ---------------------------------------------------------------------------
+
+/// Charge configuration for ultimate abilities. Each class defines how its
+/// ultimate charges up during combat.
+class ChargeDef {
+  /// Trigger type: on_attack, on_kill, on_crit, on_nth_attack, on_buff_ally,
+  /// on_enemy_debuffed, on_time, on_wave_start.
+  final String trigger;
+
+  /// Charge gained per trigger event.
+  final int amount;
+
+  /// Total charge needed to activate the ultimate.
+  final int max;
+
+  /// For on_time trigger: seconds between charge ticks.
+  final double interval;
+
+  const ChargeDef({
+    required this.trigger,
+    this.amount = 1,
+    this.max = 10,
+    this.interval = 1.0,
+  });
+
+  factory ChargeDef.fromJson(Map<String, dynamic> json) {
+    return ChargeDef(
+      trigger: json['trigger'] as String? ?? 'on_attack',
+      amount: (json['amount'] as num?)?.toInt() ?? 1,
+      max: (json['max'] as num?)?.toInt() ?? 10,
+      interval: (json['interval'] as num?)?.toDouble() ?? 1.0,
+    );
+  }
+
+  @override
+  String toString() => 'ChargeDef($trigger, $amount/$max)';
+}
+
+// ---------------------------------------------------------------------------
+// AbilityDef — an active or ultimate ability
+// ---------------------------------------------------------------------------
+
+/// Defines an active or ultimate ability for a tower class.
+class AbilityDef {
+  final String name;
+  final String description;
+
+  /// Targeting type: "instant", "enemy", "lane", "tower".
+  final String targeting;
+
+  /// Cooldown in seconds (for active abilities).
+  final double cooldown;
+
+  /// Fraction of cooldown already elapsed at wave start (0.33 = starts 33% on CD).
+  final double initialCooldownPct;
+
+  /// Duration for timed effects (0 = instant one-shot).
+  final double duration;
+
+  /// Charge config (only for ultimates).
+  final ChargeDef? charge;
+
+  /// The effects this ability applies when cast.
+  final List<EffectDef> effects;
+
+  const AbilityDef({
+    required this.name,
+    this.description = '',
+    this.targeting = 'instant',
+    this.cooldown = 10.0,
+    this.initialCooldownPct = 0.33,
+    this.duration = 0,
+    this.charge,
+    this.effects = const [],
+  });
+
+  bool get isInstant => targeting == 'instant';
+  bool get isTargeted => !isInstant;
+  bool get isUltimate => charge != null;
+
+  factory AbilityDef.fromJson(Map<String, dynamic> json) {
+    return AbilityDef(
+      name: json['name'] as String? ?? 'Unknown',
+      description: json['description'] as String? ?? '',
+      targeting: json['targeting'] as String? ?? 'instant',
+      cooldown: (json['cooldown'] as num?)?.toDouble() ?? 10.0,
+      initialCooldownPct:
+          (json['initialCooldownPct'] as num?)?.toDouble() ?? 0.33,
+      duration: (json['duration'] as num?)?.toDouble() ?? 0,
+      charge: json['charge'] != null
+          ? ChargeDef.fromJson(
+              Map<String, dynamic>.from(json['charge'] as Map))
+          : null,
+      effects: (json['effects'] as List<dynamic>?)
+              ?.map((e) =>
+                  EffectDef.fromJson(Map<String, dynamic>.from(e as Map)))
+              .toList() ??
+          const [],
+    );
+  }
+
+  @override
+  String toString() => 'AbilityDef($name, targeting=$targeting)';
+}
+
+// ---------------------------------------------------------------------------
 // TdClassDef — a class definition from classes.json
 // ---------------------------------------------------------------------------
 
@@ -122,6 +229,8 @@ class TdClassDef {
   final PassiveDef passive;
   final PassiveDef? empoweredPassive;
   final Color attackColor;
+  final AbilityDef? activeAbility;
+  final AbilityDef? ultimateAbility;
 
   const TdClassDef({
     required this.name,
@@ -129,6 +238,8 @@ class TdClassDef {
     required this.passive,
     this.empoweredPassive,
     this.attackColor = const Color(0xFFFFFFFF),
+    this.activeAbility,
+    this.ultimateAbility,
   });
 
   factory TdClassDef.fromJson(String name, Map<String, dynamic> json) {
@@ -142,6 +253,12 @@ class TdClassDef {
           ? PassiveDef.fromJson(Map<String, dynamic>.from(json['empoweredPassive'] as Map))
           : null,
       attackColor: _parseColor((json['attackColor'] ?? json['attack_color']) as String?),
+      activeAbility: json['activeAbility'] != null
+          ? AbilityDef.fromJson(Map<String, dynamic>.from(json['activeAbility'] as Map))
+          : null,
+      ultimateAbility: json['ultimateAbility'] != null
+          ? AbilityDef.fromJson(Map<String, dynamic>.from(json['ultimateAbility'] as Map))
+          : null,
     );
   }
 
@@ -467,4 +584,325 @@ List<EffectDef> _parseEffectList(dynamic json) {
   return json
       .map((e) => EffectDef.fromJson(Map<String, dynamic>.from(e as Map)))
       .toList();
+}
+
+// ---------------------------------------------------------------------------
+// SFX Definitions — data-driven sound effect configs from sfx.json
+// ---------------------------------------------------------------------------
+
+/// Per-class sound effect paths.
+class TdClassSfxDef {
+  final String? attackHit;
+  final String? attackCrit;
+  final String? chargeAttack;
+  final String? chargeRelease;
+  final String? chainDamage;
+  final String? dotApply;
+  final String? slowApply;
+  final String? buffApply;
+  final String? cleanseApply;
+
+  const TdClassSfxDef({
+    this.attackHit,
+    this.attackCrit,
+    this.chargeAttack,
+    this.chargeRelease,
+    this.chainDamage,
+    this.dotApply,
+    this.slowApply,
+    this.buffApply,
+    this.cleanseApply,
+  });
+
+  factory TdClassSfxDef.fromJson(Map<String, dynamic> json) {
+    return TdClassSfxDef(
+      attackHit: json['attackHit'] as String?,
+      attackCrit: json['attackCrit'] as String?,
+      chargeAttack: json['chargeAttack'] as String?,
+      chargeRelease: json['chargeRelease'] as String?,
+      chainDamage: json['chainDamage'] as String?,
+      dotApply: json['dotApply'] as String?,
+      slowApply: json['slowApply'] as String?,
+      buffApply: json['buffApply'] as String?,
+      cleanseApply: json['cleanseApply'] as String?,
+    );
+  }
+
+  /// Get a sound path by event name, returns null if not configured.
+  String? operator [](String key) {
+    switch (key) {
+      case 'attackHit': return attackHit;
+      case 'attackCrit': return attackCrit;
+      case 'chargeAttack': return chargeAttack;
+      case 'chargeRelease': return chargeRelease;
+      case 'chainDamage': return chainDamage;
+      case 'dotApply': return dotApply;
+      case 'slowApply': return slowApply;
+      case 'buffApply': return buffApply;
+      case 'cleanseApply': return cleanseApply;
+      default: return null;
+    }
+  }
+}
+
+/// Per-dungeon sound effect paths, with optional UI overrides.
+class TdDungeonSfxDef {
+  final String? enemyDeath;
+  final String? enemySpawn;
+  final String? bossDeath;
+  final String? bossSpawn;
+  final String? waveStart;
+  final String? waveComplete;
+  final String? enemyLeak;
+  final String? shieldBreak;
+  final String? phaseShift;
+  final String? resurrect;
+  final String? laneSwitch;
+  final String? victory;
+  final String? defeat;
+  final String? sanguineHeal;
+  final String? enemyAccelerate;
+  final TdUiSfxDef? ui;
+
+  const TdDungeonSfxDef({
+    this.enemyDeath,
+    this.enemySpawn,
+    this.bossDeath,
+    this.bossSpawn,
+    this.waveStart,
+    this.waveComplete,
+    this.enemyLeak,
+    this.shieldBreak,
+    this.phaseShift,
+    this.resurrect,
+    this.laneSwitch,
+    this.victory,
+    this.defeat,
+    this.sanguineHeal,
+    this.enemyAccelerate,
+    this.ui,
+  });
+
+  factory TdDungeonSfxDef.fromJson(Map<String, dynamic> json) {
+    return TdDungeonSfxDef(
+      enemyDeath: json['enemyDeath'] as String?,
+      enemySpawn: json['enemySpawn'] as String?,
+      bossDeath: json['bossDeath'] as String?,
+      bossSpawn: json['bossSpawn'] as String?,
+      waveStart: json['waveStart'] as String?,
+      waveComplete: json['waveComplete'] as String?,
+      enemyLeak: json['enemyLeak'] as String?,
+      shieldBreak: json['shieldBreak'] as String?,
+      phaseShift: json['phaseShift'] as String?,
+      resurrect: json['resurrect'] as String?,
+      laneSwitch: json['laneSwitch'] as String?,
+      victory: json['victory'] as String?,
+      defeat: json['defeat'] as String?,
+      sanguineHeal: json['sanguineHeal'] as String?,
+      enemyAccelerate: json['enemyAccelerate'] as String?,
+      ui: json['ui'] != null
+          ? TdUiSfxDef.fromJson(Map<String, dynamic>.from(json['ui'] as Map))
+          : null,
+    );
+  }
+
+  /// Get a sound path by event name, returns null if not configured.
+  String? operator [](String key) {
+    switch (key) {
+      case 'enemyDeath': return enemyDeath;
+      case 'enemySpawn': return enemySpawn;
+      case 'bossDeath': return bossDeath;
+      case 'bossSpawn': return bossSpawn;
+      case 'waveStart': return waveStart;
+      case 'waveComplete': return waveComplete;
+      case 'enemyLeak': return enemyLeak;
+      case 'shieldBreak': return shieldBreak;
+      case 'phaseShift': return phaseShift;
+      case 'resurrect': return resurrect;
+      case 'laneSwitch': return laneSwitch;
+      case 'victory': return victory;
+      case 'defeat': return defeat;
+      case 'sanguineHeal': return sanguineHeal;
+      case 'enemyAccelerate': return enemyAccelerate;
+      default: return null;
+    }
+  }
+}
+
+/// UI sound effect paths (global or per-dungeon override).
+class TdUiSfxDef {
+  final String? towerPlace;
+  final String? towerMove;
+  final String? upgradePurchase;
+  final String? buttonTap;
+  final String? gameStart;
+  final String? nextWave;
+  final String? rouletteTick;
+  final String? rouletteReveal;
+  final String? compSelect;
+  final String? compDeselect;
+  final String? keystoneInsert;
+
+  const TdUiSfxDef({
+    this.towerPlace,
+    this.towerMove,
+    this.upgradePurchase,
+    this.buttonTap,
+    this.gameStart,
+    this.nextWave,
+    this.rouletteTick,
+    this.rouletteReveal,
+    this.compSelect,
+    this.compDeselect,
+    this.keystoneInsert,
+  });
+
+  factory TdUiSfxDef.fromJson(Map<String, dynamic> json) {
+    return TdUiSfxDef(
+      towerPlace: json['towerPlace'] as String?,
+      towerMove: json['towerMove'] as String?,
+      upgradePurchase: json['upgradePurchase'] as String?,
+      buttonTap: json['buttonTap'] as String?,
+      gameStart: json['gameStart'] as String?,
+      nextWave: json['nextWave'] as String?,
+      rouletteTick: json['rouletteTick'] as String?,
+      rouletteReveal: json['rouletteReveal'] as String?,
+      compSelect: json['compSelect'] as String?,
+      compDeselect: json['compDeselect'] as String?,
+      keystoneInsert: json['keystoneInsert'] as String?,
+    );
+  }
+
+  /// Get a sound path by event name, returns null if not configured.
+  String? operator [](String key) {
+    switch (key) {
+      case 'towerPlace': return towerPlace;
+      case 'towerMove': return towerMove;
+      case 'upgradePurchase': return upgradePurchase;
+      case 'buttonTap': return buttonTap;
+      case 'gameStart': return gameStart;
+      case 'nextWave': return nextWave;
+      case 'rouletteTick': return rouletteTick;
+      case 'rouletteReveal': return rouletteReveal;
+      case 'compSelect': return compSelect;
+      case 'compDeselect': return compDeselect;
+      case 'keystoneInsert': return keystoneInsert;
+      default: return null;
+    }
+  }
+}
+
+/// Per-affix sound effect paths.
+class TdAffixSfxDef {
+  final String? trigger;
+
+  const TdAffixSfxDef({this.trigger});
+
+  factory TdAffixSfxDef.fromJson(Map<String, dynamic> json) {
+    return TdAffixSfxDef(trigger: json['trigger'] as String?);
+  }
+}
+
+/// Per-boss-mechanic sound effect paths.
+class TdBossMechanicSfxDef {
+  final String? trigger;
+  final String? spawn;
+  final String? tick;
+  final String? on;
+  final String? off;
+
+  const TdBossMechanicSfxDef({
+    this.trigger,
+    this.spawn,
+    this.tick,
+    this.on,
+    this.off,
+  });
+
+  factory TdBossMechanicSfxDef.fromJson(Map<String, dynamic> json) {
+    return TdBossMechanicSfxDef(
+      trigger: json['trigger'] as String?,
+      spawn: json['spawn'] as String?,
+      tick: json['tick'] as String?,
+      on: json['on'] as String?,
+      off: json['off'] as String?,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Game SFX Event — emitted by TdGameState, consumed by audio service
+// ---------------------------------------------------------------------------
+
+/// Types of SFX events emitted during gameplay.
+enum TdSfxEventType {
+  // Combat (class-level)
+  attackHit,
+  attackCrit,
+  chargeAttack,
+  chainDamage,
+  dotApply,
+  slowApply,
+  buffApply,
+  cleanseApply,
+  // Dungeon-level
+  enemyDeath,
+  enemySpawn,
+  bossDeath,
+  bossSpawn,
+  waveStart,
+  waveComplete,
+  enemyLeak,
+  shieldBreak,
+  phaseShift,
+  resurrect,
+  laneSwitch,
+  victory,
+  defeat,
+  // Affix
+  burstingTrigger,
+  sanguineTrigger,
+  bolsteringTrigger,
+  // Boss mechanics
+  fireZoneSpawn,
+  fireZoneTick,
+  bossTeleport,
+  bossEnrage,
+  summonAdds,
+  reflectDamageOn,
+  reflectDamageOff,
+  knockbackTower,
+  windPush,
+  stackingDamageTick,
+  splitOnDeath,
+  // Dungeon (additional)
+  sanguineHeal,
+  enemyAccelerate,
+  // Combat (additional)
+  chargeRelease,
+  // UI
+  towerPlace,
+  towerMove,
+  upgradePurchase,
+  buttonTap,
+  gameStart,
+  nextWave,
+  rouletteTick,
+  rouletteReveal,
+  compSelect,
+  compDeselect,
+  keystoneInsert,
+}
+
+/// A single SFX event emitted by the game state.
+class TdSfxEvent {
+  final TdSfxEventType type;
+  final String? className;
+  final String? dungeonKey;
+
+  const TdSfxEvent({
+    required this.type,
+    this.className,
+    this.dungeonKey,
+  });
 }
