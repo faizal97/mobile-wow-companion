@@ -577,6 +577,22 @@ class TdGameState extends ChangeNotifier {
           break;
       }
 
+      // Apply lane_count_damage (DH Momentum: +X% per reachable lane)
+      for (final effect in tower.classDef.passive.effects) {
+        if (effect.type == 'lane_count_damage') {
+          // Count reachable lanes based on cross_lane_attack range
+          final crossRange = tower.classDef.passive.effects
+              .where((e) => e.type == 'cross_lane_attack')
+              .map((e) => e.value.toInt())
+              .fold(0, (a, b) => a > b ? a : b);
+          var laneCount = 0;
+          for (var lane = 0; lane < 3; lane++) {
+            if ((lane - tower.laneIndex).abs() <= crossRange) laneCount++;
+          }
+          baseDamage *= (1.0 + effect.value * laneCount);
+        }
+      }
+
       // Apply transform stacking damage (Voidform)
       if (tower.transformArchetype != null && tower.transformStackingBonus > 0) {
         baseDamage *= (1.0 + tower.transformStackingBonus);

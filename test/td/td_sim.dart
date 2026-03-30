@@ -288,6 +288,20 @@ class TdSim {
         'Available: ${allDungeonKeys.join(', ')}');
   }
 
+  /// Default slot for a tower archetype.
+  static int _defaultSlotFor(TowerArchetype archetype) {
+    switch (archetype) {
+      case TowerArchetype.melee:
+        return 0; // front (0.25) — short range, intercepts early
+      case TowerArchetype.ranged:
+        return 2; // back (0.85) — long range, catches stragglers
+      case TowerArchetype.aoe:
+        return 1; // mid (0.55) — medium range, covers middle
+      case TowerArchetype.support:
+        return 1; // mid (0.55) — adjacent buffs reach both neighbors
+    }
+  }
+
   /// Create a mock WoW character.
   WowCharacter _makeChar(String className, {int ilvl = 600}) {
     return WowCharacter(
@@ -393,7 +407,11 @@ class TdSim {
       game.keystone = ks;
     }
 
-    // Deploy towers
+    // Deploy towers with archetype-aware default positioning:
+    //   melee → slot 0 (front, 0.25) — short range, intercepts early
+    //   ranged → slot 2 (back, 0.85) — long range, catches stragglers
+    //   aoe → slot 1 (mid, 0.55) — medium range, covers middle
+    //   support → slot 1 (mid, 0.55) — adjacent buffs reach both neighbors
     for (var i = 0; i < game.towers.length; i++) {
       final lane = lanes?[i] ??
           (i < 2
@@ -401,7 +419,7 @@ class TdSim {
               : i < 4
                   ? 1
                   : 2);
-      final slot = slots?[i] ?? 1;
+      final slot = slots?[i] ?? _defaultSlotFor(game.towers[i].archetype);
       game.moveTower(i, lane, slot: slot);
     }
 

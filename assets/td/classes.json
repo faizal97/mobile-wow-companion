@@ -165,43 +165,38 @@
     "paladin": {
       "archetype": "melee",
       "passive": {
-        "name": "Divine Shield",
-        "description": "Immune to all tower debuffs.",
+        "name": "Judgment",
+        "description": "Buffs adjacent towers' damage by 15%.",
         "trigger": "passive",
-        "effects": [{ "type": "immune_to_debuff" }]
+        "effects": [{ "type": "buff_adjacent_damage", "value": 0.15 }]
       },
       "empoweredPassive": {
-        "name": "Aura Mastery",
-        "description": "Immune to all debuffs and cleanses adjacent towers.",
+        "name": "Greater Judgment",
+        "description": "Buffs adjacent towers' damage by 25%.",
         "trigger": "passive",
-        "effects": [
-          { "type": "immune_to_debuff" },
-          { "type": "cleanse_adjacent" }
-        ]
+        "effects": [{ "type": "buff_adjacent_damage", "value": 0.25 }]
       },
       "attackColor": "#F48CBA",
       "activeAbility": {
-        "name": "Blessing of Protection",
+        "name": "Blessing of Kings",
         "icon": "blessing_of_protection",
-        "description": "Grant an allied tower immunity to damage and debuffs for 5s.",
-        "targeting": "tower",
-        "cooldown": 18.0,
+        "description": "All towers gain +20% damage for 6s.",
+        "targeting": "instant",
+        "cooldown": 16.0,
         "initialCooldownPct": 0.33,
         "effects": [
-          { "type": "buff_tower", "buff": "immune_to_debuff", "duration": 5.0 },
-          { "type": "buff_tower", "buff": "immune_to_damage", "duration": 5.0 }
+          { "type": "buff_all_towers", "buff": "damage_multiplier", "value": 1.20, "duration": 6.0 }
         ]
       },
       "ultimateAbility": {
-        "name": "Avenging Wrath",
+        "name": "Guardian of Ancient Kings",
         "icon": "avenging_wrath",
-        "description": "Golden wings for 10s: ALL towers gain +25% damage and immunity to debuffs.",
+        "description": "For 8s: ALL towers gain +25% damage.",
         "targeting": "instant",
-        "duration": 10.0,
-        "charge": { "trigger": "on_buff_ally", "amount": 2, "max": 20 },
+        "duration": 8.0,
+        "charge": { "trigger": "on_attack", "amount": 1, "max": 20 },
         "effects": [
-          { "type": "buff_all_towers", "buff": "damage_multiplier", "value": 1.25, "duration": 10.0 },
-          { "type": "buff_all_towers", "buff": "immune_to_debuff", "duration": 10.0 }
+          { "type": "buff_all_towers", "buff": "damage_multiplier", "value": 1.25, "duration": 8.0 }
         ]
       }
     },
@@ -246,16 +241,22 @@
     "demon hunter": {
       "archetype": "melee",
       "passive": {
-        "name": "Fel Rush",
-        "description": "Can attack enemies in an adjacent lane.",
+        "name": "Momentum",
+        "description": "Can attack adjacent lanes. +15% damage per reachable lane (center: +45%, edge: +30%).",
         "trigger": "passive",
-        "effects": [{ "type": "cross_lane_attack", "value": 1 }]
+        "effects": [
+          { "type": "cross_lane_attack", "value": 1 },
+          { "type": "lane_count_damage", "value": 0.15 }
+        ]
       },
       "empoweredPassive": {
         "name": "Havoc",
-        "description": "Can attack enemies in all lanes.",
+        "description": "Can attack ALL lanes. +15% damage per reachable lane (+45% from any position).",
         "trigger": "passive",
-        "effects": [{ "type": "cross_lane_attack", "value": 2 }]
+        "effects": [
+          { "type": "cross_lane_attack", "value": 2 },
+          { "type": "lane_count_damage", "value": 0.15 }
+        ]
       },
       "attackColor": "#A330C9",
       "activeAbility": {
